@@ -83,6 +83,122 @@ func TestReadFileNormalizesCRLFContent(t *testing.T) {
 	}
 }
 
+func TestWriteFilePreservesCRLFWhenOverwritingExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(path, []byte("alpha\r\nbeta\r\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ts, err := NewToolset(dir)
+	if err != nil {
+		t.Fatalf("new toolset: %v", err)
+	}
+
+	res, err := ts.writeFile(context.Background(), tc("write", map[string]any{
+		"file_path": "a.txt",
+		"content":   "alpha\nwhale\n",
+	}))
+	if err != nil || res.IsError {
+		t.Fatalf("write failed: err=%v res=%+v", err, res)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if string(got) != "alpha\r\nwhale\r\n" {
+		t.Fatalf("content = %q, want CRLF preserved", string(got))
+	}
+}
+
+func TestWriteFilePreservesLFWhenOverwritingExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ts, err := NewToolset(dir)
+	if err != nil {
+		t.Fatalf("new toolset: %v", err)
+	}
+
+	res, err := ts.writeFile(context.Background(), tc("write", map[string]any{
+		"file_path": "a.txt",
+		"content":   "alpha\r\nwhale\r\n",
+	}))
+	if err != nil || res.IsError {
+		t.Fatalf("write failed: err=%v res=%+v", err, res)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if string(got) != "alpha\nwhale\n" {
+		t.Fatalf("content = %q, want LF preserved", string(got))
+	}
+}
+
+func TestWriteFileKeepsNewFileContentExact(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.txt")
+	ts, err := NewToolset(dir)
+	if err != nil {
+		t.Fatalf("new toolset: %v", err)
+	}
+
+	res, err := ts.writeFile(context.Background(), tc("write", map[string]any{
+		"file_path": "a.txt",
+		"content":   "alpha\r\nwhale\r\n",
+	}))
+	if err != nil || res.IsError {
+		t.Fatalf("write failed: err=%v res=%+v", err, res)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	if string(got) != "alpha\r\nwhale\r\n" {
+		t.Fatalf("content = %q, want new file content unchanged", string(got))
+	}
+}
+
+func TestWriteFileKeepsExistingFileContentExactWhenNoLineEndingStyle(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		before  string
+		content string
+	}{
+		{name: "empty placeholder", before: "", content: "alpha\r\nwhale\r\n"},
+		{name: "single line placeholder", before: "placeholder", content: "alpha\rwhale\r"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "a.txt")
+			if err := os.WriteFile(path, []byte(tt.before), 0o644); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			ts, err := NewToolset(dir)
+			if err != nil {
+				t.Fatalf("new toolset: %v", err)
+			}
+
+			res, err := ts.writeFile(context.Background(), tc("write", map[string]any{
+				"file_path": "a.txt",
+				"content":   tt.content,
+			}))
+			if err != nil || res.IsError {
+				t.Fatalf("write failed: err=%v res=%+v", err, res)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read result: %v", err)
+			}
+			if string(got) != tt.content {
+				t.Fatalf("content = %q, want exact requested content %q", string(got), tt.content)
+			}
+		})
+	}
+}
+
 func TestEditFileMatchesLFSearchAndPreservesCRLF(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.txt")
