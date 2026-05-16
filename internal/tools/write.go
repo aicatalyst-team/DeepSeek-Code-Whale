@@ -27,15 +27,16 @@ func (b *Toolset) writeFile(_ context.Context, call core.ToolCall) (core.ToolRes
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return marshalToolError(call, "read_failed", readErr.Error()), nil
 	}
-	before := string(beforeBytes)
+	existing := readErr == nil
+	before, after, content := prepareWriteFileContent(beforeBytes, in.Content, existing)
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return marshalToolError(call, "write_failed", err.Error()), nil
 	}
-	if err := os.WriteFile(abs, []byte(in.Content), 0o644); err != nil {
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		return marshalToolError(call, "write_failed", err.Error()), nil
 	}
-	metadata := fileDiffMetadata([]fileChangePreview{{path: in.FilePath, before: before, after: in.Content}})
-	return marshalToolResultWithMetadata(call, map[string]any{"file_path": in.FilePath, "bytes": len(in.Content)}, metadata)
+	metadata := fileDiffMetadata([]fileChangePreview{{path: in.FilePath, before: before, after: after}})
+	return marshalToolResultWithMetadata(call, map[string]any{"file_path": in.FilePath, "bytes": len(content)}, metadata)
 }
 
 func (b *Toolset) previewWriteFile(_ context.Context, call core.ToolCall) (map[string]any, error) {
@@ -57,5 +58,27 @@ func (b *Toolset) previewWriteFile(_ context.Context, call core.ToolCall) (map[s
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	return fileDiffMetadata([]fileChangePreview{{path: in.FilePath, before: string(beforeBytes), after: in.Content}}), nil
+	before, after, _ := prepareWriteFileContent(beforeBytes, in.Content, err == nil)
+	return fileDiffMetadata([]fileChangePreview{{path: in.FilePath, before: before, after: after}}), nil
+}
+
+func prepareWriteFileContent(beforeBytes []byte, content string, existing bool) (string, string, string) {
+	if !existing {
+		return "", content, content
+	}
+	if !hasLineEndingBytes(beforeBytes) {
+		return string(beforeBytes), content, content
+	}
+	before, lineEndings := normalizeLineEndings(string(beforeBytes))
+	after := normalizeLineEndingText(content)
+	return before, after, restoreLineEndings(after, lineEndings)
+}
+
+func hasLineEndingBytes(b []byte) bool {
+	for _, c := range b {
+		if c == '\n' || c == '\r' {
+			return true
+		}
+	}
+	return false
 }
