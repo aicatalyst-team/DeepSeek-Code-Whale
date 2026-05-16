@@ -1,6 +1,9 @@
 package render
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestMarkdownCache_HitProducesIdenticalOutput(t *testing.T) {
 	resetMarkdownCacheForTest()
@@ -66,29 +69,6 @@ func uniqueMarkdown(i int) string {
 	return "## entry\n\nthis is entry number " +
 		string(rune('A'+(i%26))) +
 		" with index " +
-		itoa(i) +
+		strconv.Itoa(i) +
 		" and *some* emphasis.\n"
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	neg := false
-	if i < 0 {
-		neg = true
-		i = -i
-	}
-	var buf [20]byte
-	pos := len(buf)
-	for i > 0 {
-		pos--
-		buf[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
 }

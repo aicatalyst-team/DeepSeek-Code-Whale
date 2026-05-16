@@ -6,9 +6,15 @@ import (
 )
 
 // markdownCacheCap bounds the number of (input, width, quiet) entries kept in
-// memory. A typical on-screen transcript fits in well under 256 distinct
-// messages; the surplus headroom absorbs the steadily-changing "live" entry
-// during streaming without evicting stable prior-turn entries.
+// memory. During streaming the live assistant message changes on every delta,
+// inserting one fresh key per delta — but those live keys are only touched
+// once. The prior-turn keys, by contrast, are hit on every re-render, so LRU
+// keeps them near the front and the live keys decay off the back. The cap
+// therefore only needs to exceed the on-screen prior-turn count by a healthy
+// margin, not the streaming delta count. 256 covers typical transcripts; a
+// pathological stream that produces more deltas than the cap can still
+// transiently evict prior-turn entries, which are simply re-rendered (and
+// re-cached) on the next render that touches them.
 const markdownCacheCap = 256
 
 // markdownCacheMaxInputBytes caps the size of individual entries to avoid
