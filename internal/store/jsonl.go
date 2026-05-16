@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,14 +43,25 @@ func NewJSONLStore(sessionsDir string) (*JSONLStore, error) {
 }
 
 func DefaultDataDir() string {
-	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
+	return defaultDataDir(runtime.GOOS, os.Getenv, os.UserHomeDir)
+}
+
+func defaultDataDir(goos string, getenv func(string) string, userHomeDir func() (string, error)) string {
+	if goos == "windows" {
+		home, err := userHomeDir()
+		if err != nil || strings.TrimSpace(home) == "" {
+			return ".whale"
+		}
+		return filepath.Join(strings.TrimSpace(home), ".whale")
+	}
+	if home := strings.TrimSpace(getenv("HOME")); home != "" {
 		return filepath.Join(home, ".whale")
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	home, err := userHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
 		return ".whale"
 	}
-	return filepath.Join(home, ".whale")
+	return filepath.Join(strings.TrimSpace(home), ".whale")
 }
 
 func DefaultSessionsDir(dataDir string) string {
