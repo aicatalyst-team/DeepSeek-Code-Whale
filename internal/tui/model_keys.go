@@ -13,8 +13,16 @@ import (
 )
 
 const (
-	windowsPasteEnterDelay         = 300 * time.Millisecond
-	windowsPasteQuietDelay         = time.Second
+	windowsPasteEnterDelay = 300 * time.Millisecond
+	// Time-until-flush after the last paste chunk arrives. Has to be
+	// long enough to bridge intra-paste gaps in slow conhost delivery
+	// but short enough that the user does not perceive the buffered
+	// portion as a separate, late-arriving second insert. Sits one tier
+	// above the 60ms cadence window so a single paste cannot be split,
+	// and close to the ~100ms human "instant" perception threshold.
+	// Codex / DeepSeek-TUI ship 60ms on Windows; this is the safer
+	// neighbor that still feels snappy.
+	windowsPasteQuietDelay         = 80 * time.Millisecond
 	windowsPasteContinuationWindow = 30 * time.Millisecond
 )
 
