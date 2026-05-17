@@ -5581,6 +5581,30 @@ func TestApprovalViewShowsDiffMetadata(t *testing.T) {
 	}
 }
 
+func TestApprovalViewShowsFileReviewSessionScope(t *testing.T) {
+	m := newModel(nil, "", "", "")
+	m.width = 100
+	m.height = 30
+	m.mode = modeApproval
+	m.approval.toolName = "apply_patch"
+	m.approval.reason = "apply_patch: a.txt, b.txt"
+	m.approval.metadata = testFileDiffMetadata()
+	m.approval.metadata["approval_kind"] = "file_diff_review"
+	m.approval.metadata["approval_session_scope"] = "these files: a.txt, b.txt"
+
+	view := m.View()
+	for _, want := range []string{
+		"Approval required: file diff review",
+		"Review file changes before Whale applies them.",
+		"Allow for session = these files: a.txt, b.txt",
+		"a.txt (+1 -1)",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected approval view to contain %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestApprovalDiffMetadataRendersMultipleFiles(t *testing.T) {
 	metadata := map[string]any{
 		"kind": "file_diff",
