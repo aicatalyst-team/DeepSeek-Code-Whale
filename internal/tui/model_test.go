@@ -2128,8 +2128,8 @@ func TestPickerEventsClearBusyState(t *testing.T) {
 			name: "permissions picker",
 			ev: service.Event{
 				Kind:            service.EventPermissionsPicker,
-				ApprovalChoices: []string{"Ask first", "Auto approve"},
-				CurrentApproval: "Ask first",
+				ApprovalChoices: []string{service.ApprovalChoiceAskFirst, service.ApprovalChoiceAutoApproveSession},
+				CurrentApproval: service.ApprovalChoiceAskFirst,
 			},
 			mode: modePermissionsPicker,
 		},
@@ -2147,6 +2147,46 @@ func TestPickerEventsClearBusyState(t *testing.T) {
 				t.Fatalf("expected mode %v, got %v", tt.mode, m.mode)
 			}
 		})
+	}
+}
+
+func TestPermissionsPickerCopyClarifiesAutoApproveScope(t *testing.T) {
+	m := newModel(nil, "", "", "")
+	m.permissionsPicker.choices = []string{service.ApprovalChoiceAskFirst, service.ApprovalChoiceAutoApproveSession}
+
+	view := m.renderPermissionsPicker()
+	for _, want := range []string{
+		"Ask before tools run",
+		"Prompt before write, patch, shell, or MCP tools run.",
+		"Auto approve all tools for this session",
+		"No approval prompts until Whale exits.",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected permissions picker to contain %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Never ask; auto-approve tool calls.") {
+		t.Fatalf("permissions picker should not use ambiguous auto-approve copy:\n%s", view)
+	}
+}
+
+func TestPermissionsPickerAutoApproveDispatchesNeverAsk(t *testing.T) {
+	m, intents := newModelWithDispatchSpy()
+	m.mode = modePermissionsPicker
+	m.permissionsPicker.choices = []string{service.ApprovalChoiceAskFirst, service.ApprovalChoiceAutoApproveSession}
+	m.permissionsPicker.index = 1
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+
+	if len(*intents) != 1 {
+		t.Fatalf("expected one intent, got %+v", *intents)
+	}
+	if got := (*intents)[0]; got.Kind != service.IntentSetApprovalMode || got.ApprovalMode != "never-ask" {
+		t.Fatalf("unexpected approval intent: %+v", got)
+	}
+	if m.mode != modeChat {
+		t.Fatalf("expected permissions picker to close, got mode %v", m.mode)
 	}
 }
 

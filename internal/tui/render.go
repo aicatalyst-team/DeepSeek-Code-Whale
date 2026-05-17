@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/usewhale/whale/internal/app/service"
 	"github.com/usewhale/whale/internal/build"
 	tuitheme "github.com/usewhale/whale/internal/tui/theme"
 )
@@ -535,8 +536,8 @@ func (m model) renderModelPicker() string {
 func (m model) renderPermissionsPicker() string {
 	rows := []string{"Permissions", ""}
 	descriptions := map[string]string{
-		"Ask first":    "Ask before write, patch, or shell tools run.",
-		"Auto approve": "Never ask; auto-approve tool calls.",
+		service.ApprovalChoiceAskFirst:           "Prompt before write, patch, shell, or MCP tools run.",
+		service.ApprovalChoiceAutoApproveSession: "No approval prompts until Whale exits.",
 	}
 	for i, item := range m.permissionsPicker.choices {
 		prefix := "  "
