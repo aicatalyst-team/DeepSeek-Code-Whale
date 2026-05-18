@@ -44,9 +44,15 @@ whale exec --effort=max "summarize this repo"
 whale resume <session-id> --thinking=true --effort=high
 ```
 
-`--thinking` and `--effort` are runtime-only overrides. Whale applies them
-after merging default, global, and project config for the current process, and
-it does not write them back to `config.toml`.
+`--thinking`, `--effort`, and `--dangerously-skip-permissions` are runtime-only
+overrides. Whale applies them after merging default, global, and project config
+for the current process, and it does not write them back to `config.toml`.
+
+`--dangerously-skip-permissions` sets the current process to `permissions.mode =
+"never"`. It skips tool approval prompts for writes, patches, shell commands,
+and MCP tools. Use it only in a trusted workspace or an external sandbox; Whale
+does not add command sandboxing for this mode. Shell commands matching
+`deny_shell_prefixes` are still blocked.
 
 Example:
 
@@ -104,6 +110,8 @@ If you started with Whale v0.1.9 or newer, you do not need this command.
 
 - `whale exec` and the interactive TUI use the same underlying tool loop.
 - Normal approval behavior still applies in headless mode.
+- `whale exec --dangerously-skip-permissions "prompt"` skips approval prompts
+  for that one headless run.
 - `reasoning_effort` and `thinking_enabled` in `config.toml` remain the
   long-term defaults when `--effort` or `--thinking` are not passed.
 - `DEEPSEEK_BASE_URL` overrides `[api].base_url`; if neither is set, Whale uses
