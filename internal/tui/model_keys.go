@@ -174,6 +174,9 @@ func (m *model) handleChatModeKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 	case "up":
+		if m.shouldHandleHistoryNavigation() && m.historyPrev() {
+			return nil, true
+		}
 		if m.hasSlashSuggestions() {
 			if m.slash.selected > 0 {
 				m.slash.selected--
@@ -186,10 +189,10 @@ func (m *model) handleChatModeKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			}
 			return nil, true
 		}
-		if m.shouldHandleHistoryNavigation() && m.historyPrev() {
+	case "down":
+		if m.shouldHandleHistoryNavigation() && m.historyNext() {
 			return nil, true
 		}
-	case "down":
 		if m.hasSlashSuggestions() {
 			if m.slash.selected < len(m.slash.matches)-1 {
 				m.slash.selected++
@@ -200,9 +203,6 @@ func (m *model) handleChatModeKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			if m.skills.selected < len(m.skills.matches)-1 {
 				m.skills.selected++
 			}
-			return nil, true
-		}
-		if m.shouldHandleHistoryNavigation() && m.historyNext() {
 			return nil, true
 		}
 	case "tab":
