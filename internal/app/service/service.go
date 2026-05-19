@@ -64,6 +64,7 @@ const (
 	EventReasoningDelta    EventKind = "reasoning_delta"
 	EventPlanDelta         EventKind = "plan_delta"
 	EventPlanCompleted     EventKind = "plan_completed"
+	EventPlanUpdate        EventKind = "plan_update"
 	EventProviderRetry     EventKind = "provider_retry"
 	EventToolCall          EventKind = "tool_call"
 	EventToolResult        EventKind = "tool_result"

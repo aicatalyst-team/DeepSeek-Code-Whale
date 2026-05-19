@@ -2032,6 +2032,42 @@ func TestHydrateSessionMessages_SuppressesHiddenUserText(t *testing.T) {
 	}
 }
 
+func TestHydrateSessionMessages_RestoresUpdatePlanAsPlanUpdate(t *testing.T) {
+	m := &model{assembler: tuirender.NewAssembler()}
+	msgs := []core.Message{
+		{
+			Role: core.RoleAssistant,
+			ToolCalls: []core.ToolCall{{
+				ID:    "plan-1",
+				Name:  "update_plan",
+				Input: `{"plan":[{"step":"Inspect","status":"completed"},{"step":"Patch","status":"in_progress"},{"step":"Test","status":"pending"}]}`,
+			}},
+		},
+		{
+			Role: core.RoleTool,
+			ToolResults: []core.ToolResult{{
+				ToolCallID: "plan-1",
+				Name:       "update_plan",
+				Content:    `{"success":true,"data":{"explanation":"resume checklist","plan":[{"step":"Inspect","status":"completed"},{"step":"Patch","status":"in_progress"},{"step":"Test","status":"pending"}]}}`,
+			}},
+		},
+	}
+	m.hydrateSessionMessages(msgs)
+	snap := m.assembler.Snapshot()
+	if len(snap) != 1 || snap[0].Kind != tuirender.KindPlanUpdate {
+		t.Fatalf("expected hydrated plan update only, got %+v", snap)
+	}
+	if strings.Contains(snap[0].Text, "Updated plan") || strings.Contains(snap[0].Text, "update_plan") {
+		t.Fatalf("expected checklist content, not generic tool row: %+v", snap[0])
+	}
+	rendered := strings.Join(tuirender.ChatLines(snap, 80), "\n")
+	for _, want := range []string{"Updated Plan", "resume checklist", "✔ Inspect", "□ Patch", "□ Test"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected %q in hydrated plan update:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestHydrateSessionMessages_LimitsVisibleResumeHistory(t *testing.T) {
 	m := &model{assembler: tuirender.NewAssembler()}
 	msgs := make([]core.Message, 0, 12)
@@ -2326,6 +2362,38 @@ func TestTurnDoneReasoningOnlyCommitsFallback(t *testing.T) {
 	}
 }
 
+func TestPlanTurnDoneWithAssistantButNoProposedPlanShowsNotice(t *testing.T) {
+	m := model{
+		assembler: tuirender.NewAssembler(),
+		mode:      modeChat,
+		chatMode:  "plan",
+		width:     80,
+		height:    24,
+		busy:      true,
+	}
+	next, _ := m.Update(svcMsg(service.Event{
+		Kind: service.EventAssistantDelta,
+		Text: "Here is the test execution plan:\n\n- Run TUI tests\n- Run full tests",
+	}))
+	m = next.(model)
+	next, _ = m.Update(svcMsg(service.Event{Kind: service.EventTurnDone}))
+	m = next.(model)
+
+	if m.mode == modePlanImplementation {
+		t.Fatal("did not expect implementation picker without a proposed_plan block")
+	}
+	got := strings.Join(tuirender.ChatLines(m.transcript, 80), "\n")
+	if !strings.Contains(got, "Here is the test execution plan") {
+		t.Fatalf("expected assistant text to remain visible:\n%s", got)
+	}
+	if !strings.Contains(got, "No proposed plan was produced") || !strings.Contains(got, "<proposed_plan>") {
+		t.Fatalf("expected missing proposed plan notice in transcript:\n%s", got)
+	}
+	if m.sawAssistantThisTurn || m.sawPlanThisTurn {
+		t.Fatal("expected turn tracking flags to reset")
+	}
+}
+
 func TestTurnDoneReconcilesDroppedAssistantDeltaFromLastResponse(t *testing.T) {
 	m := model{assembler: tuirender.NewAssembler(), mode: modeChat, width: 80, height: 8, busy: true}
 	next, _ := m.Update(svcMsg(service.Event{
@@ -2464,6 +2532,45 @@ func TestMarkNoFinalAnswerIfNeededSkippedWithAssistant(t *testing.T) {
 	}
 	if m.markNoFinalAnswerIfNeeded() {
 		t.Fatal("did not expect no-final-answer status with assistant answer")
+	}
+	if got := len(m.assembler.Snapshot()); got != 0 {
+		t.Fatalf("expected no chat entries, got %d", got)
+	}
+}
+
+func TestMarkMissingProposedPlanIfNeeded(t *testing.T) {
+	m := model{
+		assembler:            tuirender.NewAssembler(),
+		chatMode:             "plan",
+		sawAssistantThisTurn: true,
+	}
+	if !m.markMissingProposedPlanIfNeeded(true) {
+		t.Fatal("expected missing proposed plan to be marked")
+	}
+	snap := m.assembler.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("expected one notice entry, got %+v", snap)
+	}
+	if snap[0].Kind != tuirender.KindNotice || snap[0].Role != "notice" {
+		t.Fatalf("expected notice entry, got %+v", snap[0])
+	}
+	if !strings.Contains(snap[0].Text, "No proposed plan was produced") {
+		t.Fatalf("expected missing proposed plan notice, got %q", snap[0].Text)
+	}
+	if len(m.logs) != 1 || m.logs[0].Kind != "missing_proposed_plan" {
+		t.Fatalf("expected diagnostic log entry, got %+v", m.logs)
+	}
+}
+
+func TestMarkMissingProposedPlanIfNeededSkippedWithPlan(t *testing.T) {
+	m := model{
+		assembler:            tuirender.NewAssembler(),
+		chatMode:             "plan",
+		sawAssistantThisTurn: true,
+		sawPlanThisTurn:      true,
+	}
+	if m.markMissingProposedPlanIfNeeded(true) {
+		t.Fatal("did not expect missing proposed plan notice after plan completion")
 	}
 	if got := len(m.assembler.Snapshot()); got != 0 {
 		t.Fatalf("expected no chat entries, got %d", got)
@@ -3964,6 +4071,9 @@ func TestPlanCompletedReplacesPartialPlanAndTurnDoneShowsPicker(t *testing.T) {
 	if len(m.transcript) != 1 || m.transcript[0].Kind != tuirender.KindPlan {
 		t.Fatalf("expected completed plan in transcript, got %+v", m.transcript)
 	}
+	if m.lastProposedPlan != "complete final plan" {
+		t.Fatalf("expected last proposed plan to be captured, got %q", m.lastProposedPlan)
+	}
 	next, _ = m.Update(svcMsg(service.Event{Kind: service.EventTurnDone, LastResponse: "done"}))
 	m = next.(model)
 
@@ -3976,6 +4086,90 @@ func TestPlanCompletedReplacesPartialPlanAndTurnDoneShowsPicker(t *testing.T) {
 	snap := m.assembler.Snapshot()
 	if len(snap) != 0 {
 		t.Fatalf("expected completed turn to move plan out of live assembler, got %+v", snap)
+	}
+}
+
+func TestPlanImplementationIntentIncludesLastProposedPlan(t *testing.T) {
+	m, intents := newModelWithDispatchSpy()
+	m.mode = modePlanImplementation
+	m.planImplementation.index = 0
+	m.lastProposedPlan = "# Plan\n- Patch it"
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+
+	if len(*intents) != 1 || (*intents)[0].Kind != service.IntentImplementPlan {
+		t.Fatalf("expected implement intent, got %+v", *intents)
+	}
+	if (*intents)[0].Input != "# Plan\n- Patch it" {
+		t.Fatalf("expected approved plan in intent input, got %q", (*intents)[0].Input)
+	}
+	if m.chatMode != "agent" {
+		t.Fatalf("expected chat mode switched to agent, got %q", m.chatMode)
+	}
+}
+
+func TestPlanUpdateEventRendersUpdatedPlan(t *testing.T) {
+	m := model{
+		assembler: tuirender.NewAssembler(),
+		mode:      modeChat,
+	}
+	next, _ := m.Update(svcMsg(service.Event{Kind: service.EventPlanUpdate, Text: "[x] Inspect\n[~] Patch\n[ ] Test"}))
+	m = next.(model)
+	if len(m.transcript) != 0 {
+		t.Fatalf("plan update should wait for tool result before committing transcript, got %+v", m.transcript)
+	}
+	next, _ = m.Update(svcMsg(service.Event{Kind: service.EventToolResult, ToolCallID: "plan-1", ToolName: "update_plan", Text: `{"success":true}`}))
+	m = next.(model)
+	if len(m.transcript) != 1 || m.transcript[0].Kind != tuirender.KindPlanUpdate {
+		t.Fatalf("expected plan update in transcript, got %+v", m.transcript)
+	}
+	rendered := strings.Join(tuirender.ChatLines(m.transcript, 80), "\n")
+	if !strings.Contains(rendered, "Updated Plan") || !strings.Contains(rendered, "Patch") {
+		t.Fatalf("expected rendered updated plan, got %q", rendered)
+	}
+}
+
+func TestPlanUpdateDoesNotClearPendingToolCallsBeforeResult(t *testing.T) {
+	m := model{
+		assembler:        tuirender.NewAssembler(),
+		mode:             modeChat,
+		pendingToolCalls: map[string]struct{}{},
+	}
+	next, _ := m.Update(svcMsg(service.Event{Kind: service.EventToolCall, ToolCallID: "read-1", ToolName: "read_file", Text: `read_file: docs/plugins.md`}))
+	m = next.(model)
+	next, _ = m.Update(svcMsg(service.Event{Kind: service.EventToolCall, ToolCallID: "plan-1", ToolName: "update_plan", Text: `update_plan: 2 step(s)`}))
+	m = next.(model)
+	next, _ = m.Update(svcMsg(service.Event{Kind: service.EventPlanUpdate, Text: "[x] Inspect\n[ ] Report"}))
+	m = next.(model)
+
+	if _, ok := m.pendingToolCalls["read-1"]; !ok {
+		t.Fatalf("plan update event cleared unrelated pending tool calls: %+v", m.pendingToolCalls)
+	}
+	if _, ok := m.pendingToolCalls["plan-1"]; ok {
+		t.Fatalf("update_plan should not create a pending tool row")
+	}
+	if len(m.transcript) != 0 {
+		t.Fatalf("plan update should remain live while another tool is pending, got %+v", m.transcript)
+	}
+
+	next, _ = m.Update(svcMsg(service.Event{Kind: service.EventToolResult, ToolCallID: "plan-1", ToolName: "update_plan", Text: `{"success":true}`}))
+	m = next.(model)
+	if len(m.transcript) != 0 {
+		t.Fatalf("update_plan result should not commit while read tool is pending, got %+v", m.transcript)
+	}
+
+	readResult := `{"success":true,"data":{"content":"ok"},"metadata":{"duration_ms":1}}`
+	next, _ = m.Update(svcMsg(service.Event{Kind: service.EventToolResult, ToolCallID: "read-1", ToolName: "read_file", Text: readResult}))
+	m = next.(model)
+	if len(m.transcript) != 2 {
+		t.Fatalf("expected read result and plan update committed together, got %+v", m.transcript)
+	}
+	if m.transcript[0].Text == "Updating plan" || strings.Contains(m.transcript[0].Text, "Updating plan") {
+		t.Fatalf("stale update_plan tool row was committed: %+v", m.transcript)
+	}
+	if m.transcript[1].Kind != tuirender.KindPlanUpdate {
+		t.Fatalf("expected plan update after pending tool resolves, got %+v", m.transcript)
 	}
 }
 

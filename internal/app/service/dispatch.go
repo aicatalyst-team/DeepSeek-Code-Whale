@@ -109,7 +109,7 @@ func (s *Service) Dispatch(in Intent) {
 			return
 		}
 		s.emit(Event{Kind: EventInfo, Text: out})
-		go s.runTurn("Implement the plan.", false)
+		go s.runInjectedTurn("Implement the plan.", buildImplementPlanPrompt(in.Input))
 	case IntentRequestSkillsManage:
 		s.emit(Event{Kind: EventSkillsManager, Skills: s.SkillsForManager()})
 	case IntentSetSkillEnabled:
@@ -119,6 +119,20 @@ func (s *Service) Dispatch(in Intent) {
 		}
 		s.emit(Event{Kind: EventSkillsManager, Skills: s.SkillsForManager()})
 	}
+}
+
+func buildImplementPlanPrompt(plan string) string {
+	plan = strings.TrimSpace(plan)
+	if plan == "" {
+		return strings.TrimSpace(`Implement the plan.
+
+Before editing, initialize and maintain an update_plan checklist for the implementation work. Keep exactly one item in_progress while working and mark items completed as soon as they are done.`)
+	}
+	return strings.TrimSpace(`Implement the following approved plan:
+
+` + plan + `
+
+Before editing, initialize and maintain an update_plan checklist for the implementation work. Keep exactly one item in_progress while working and mark items completed as soon as they are done.`)
 }
 
 func (s *Service) enqueueLocalSubmit(line string) {

@@ -464,7 +464,7 @@ func (m *model) handlePlanImplementationKey(msg tea.KeyMsg) tea.Cmd {
 			m.startBusy()
 			m.status = "running"
 			m.chatMode = "agent"
-			m.dispatchIntent(service.Intent{Kind: service.IntentImplementPlan})
+			m.dispatchIntent(service.Intent{Kind: service.IntentImplementPlan, Input: m.lastProposedPlan})
 			m.mode = modeChat
 			m.refreshViewportContentFollow(true)
 			return tea.Sequence(m.flushNativeScrollbackCmd(), busyTickCmd())
