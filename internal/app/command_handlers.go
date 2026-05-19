@@ -36,7 +36,7 @@ func (a *App) ExecuteSlash(line string) (CommandExecution, error) {
 		return CommandExecution{}, nil
 	}
 	if cmdResult.ClearScreen {
-		return CommandExecution{Handled: true, Text: "▸ terminal cleared — context is intact — use /new to start fresh", ClearScreen: true}, nil
+		return CommandExecution{Handled: true, ClearScreen: true}, nil
 	}
 	if cmdResult.ShowStatus {
 		return CommandExecution{Handled: true, Text: a.buildStatus()}, nil
@@ -98,14 +98,14 @@ func (a *App) ExecuteSlash(line string) (CommandExecution, error) {
 		}
 		a.currentMode = modeState.Mode
 		a.a = nil
-		out.Text = fmt.Sprintf("new session: %s", cmdResult.SessionID)
+		out.Text = fmt.Sprintf("New session\n\nsession:  %s", cmdResult.SessionID)
 		if oldMsgCount > 0 {
-			out.Text += fmt.Sprintf("\n▸ dropped %d message(s) from session %s", oldMsgCount, oldID)
+			out.Text += fmt.Sprintf("\ndropped:  %d message(s) from %s", oldMsgCount, oldID)
 		} else {
-			out.Text += fmt.Sprintf("\n▸ previous session: %s", oldID)
+			out.Text += fmt.Sprintf("\nprevious: %s", oldID)
 		}
-		out.Text += fmt.Sprintf("\n▸ to resume the previous session, run: whale resume %s", oldID)
-		out.Text += fmt.Sprintf("\nmode: %s", a.currentMode)
+		out.Text += fmt.Sprintf("\nresume:   whale resume %s", oldID)
+		out.Text += fmt.Sprintf("\nmode:     %s", a.currentMode)
 		if _, err := session.PatchSessionMeta(a.sessionsDir, a.sessionID, session.SessionMeta{Workspace: a.workspaceRoot, Branch: a.branch}); err != nil {
 			return out, err
 		}

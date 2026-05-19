@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -109,4 +110,16 @@ func firstSessionMessage(t *testing.T, path string) core.Message {
 		t.Fatalf("decode session message: %v", err)
 	}
 	return msg
+}
+
+func TestClearCLIOutputClearsAndConfirms(t *testing.T) {
+	var out bytes.Buffer
+	clearCLIOutput(&out)
+	got := out.String()
+	if !strings.Contains(got, "\033[H\033[2J\033[3J") {
+		t.Fatalf("expected clear screen sequence, got %q", got)
+	}
+	if !strings.Contains(got, "terminal cleared") {
+		t.Fatalf("expected visible clear confirmation, got %q", got)
+	}
 }

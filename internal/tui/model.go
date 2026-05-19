@@ -263,7 +263,7 @@ func newModel(svc *service.Service, modelName, effort, thinking string) model {
 	}
 	m.slash.all = parseSlashCommands(app.CommandsHelp)
 	m.slash.autoRun = buildSlashAutoRunMap(app.CommandsHelp)
-	m.resetTranscriptWithHeader()
+	m.resetTranscript()
 	return m
 }
 
@@ -338,7 +338,7 @@ func clearScreenCmdForOS(goos string, out io.Writer) tea.Cmd {
 	}
 	return func() tea.Msg {
 		fmt.Fprint(out, "\033[H\033[2J\033[3J")
-		return nil
+		return tea.ClearScreen()
 	}
 }
 

@@ -1891,8 +1891,8 @@ func TestClearScreenCmdPreservesUnixScrollbackClear(t *testing.T) {
 	var out bytes.Buffer
 	cmd := clearScreenCmdForOS("linux", &out)
 	msg := cmd()
-	if msg != nil {
-		t.Fatalf("unix clear should write directly and return nil msg, got %T", msg)
+	if msg == nil {
+		t.Fatal("unix clear should also return a Bubble Tea clear-screen message")
 	}
 	if got, want := out.String(), "\033[H\033[2J\033[3J"; got != want {
 		t.Fatalf("unix clear sequence = %q, want %q", got, want)
@@ -4336,7 +4336,7 @@ func TestChatIdleViewDoesNotRenderEmptyViewportFrame(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	view := m.View()
-	if strings.Contains(view, "┌") || strings.Contains(view, "│\n│") {
+	if strings.Contains(view, "┌") {
 		t.Fatalf("idle chat view should not render an empty bordered viewport:\n%s", view)
 	}
 	if !strings.Contains(view, "Type message or command") {
@@ -4408,6 +4408,25 @@ func TestChatTranscriptRetainsLocalCommandResultsAcrossSubmits(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected transcript to retain %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestNewSessionLocalResultRendersAsNotice(t *testing.T) {
+	m, _ := newModelWithDispatchSpy()
+	m.width = 80
+	m.height = 14
+	next, _ := m.Update(svcMsg(service.Event{
+		Kind:   service.EventLocalSubmitResult,
+		Status: "info",
+		Text:   "New session\n\nsession:  fresh\nprevious: old\nresume:   whale resume old\nmode:     agent",
+	}))
+	m = next.(model)
+	if len(m.transcript) < 1 {
+		t.Fatalf("expected session notice, got %+v", m.transcript)
+	}
+	got := m.transcript[len(m.transcript)-1]
+	if got.Role != "notice" || got.Kind != tuirender.KindNotice {
+		t.Fatalf("expected session notice kind, got role=%q kind=%q text=%q", got.Role, got.Kind, got.Text)
 	}
 }
 
@@ -4720,19 +4739,50 @@ func TestBusyLocalCommandResultDoesNotDuplicateCompletedPlan(t *testing.T) {
 
 func TestChatStartupHeaderRendersInsideViewportHeight(t *testing.T) {
 	m := newModel(nil, "deepseek-v4-flash", "max", "off")
-	m.width = 80
-	m.height = 10
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = next.(model)
 	view := m.View()
-	if !strings.Contains(view, "▸ Whale") {
+	if !strings.Contains(view, "WHALE") {
 		t.Fatalf("expected startup header in chat view:\n%s", view)
 	}
-	for _, want := range []string{"effort: max", "thinking: off"} {
+	if strings.Contains(view, "██╗") {
+		t.Fatalf("expected compact short-terminal header, got large logo:\n%s", view)
+	}
+	for _, want := range []string{"model: deepseek-v4-flash"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected startup header to contain %q:\n%s", want, view)
 		}
 	}
 	if got := strings.Count(strings.TrimRight(view, "\n"), "\n") + 1; got != m.height {
 		t.Fatalf("expected view to keep terminal height %d, got %d:\n%s", m.height, got, view)
+	}
+}
+
+func TestChatStartupHeaderUsesLargeLogoWhenTall(t *testing.T) {
+	m := newModel(nil, "deepseek-v4-flash", "max", "off")
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = next.(model)
+	view := m.View()
+	if !strings.Contains(view, "███████╗") {
+		t.Fatalf("expected large startup header in tall chat view:\n%s", view)
+	}
+	for _, want := range []string{"model:     deepseek-v4-flash", "effort:    max", "thinking:  off"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected startup header to contain %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestChatHeaderOmittedWhenBodyTooShort(t *testing.T) {
+	m := newModel(nil, "deepseek-v4-flash", "max", "off")
+	m.width = 80
+	m.height = countVisibleLines(m.renderBottom(80)) + 2
+	view := m.View()
+	if strings.Contains(view, "╭") || strings.Contains(view, "╰") || strings.Contains(view, "WHALE") {
+		t.Fatalf("expected header to be omitted instead of partially clipped:\n%s", view)
+	}
+	if got := countVisibleLines(view); got != m.height {
+		t.Fatalf("expected view height %d, got %d:\n%s", m.height, got, view)
 	}
 }
 
@@ -5428,7 +5478,7 @@ func TestNativeScrollbackSkipsHeaderAndPrintsNewTranscriptOnce(t *testing.T) {
 	m.height = 10
 
 	if cmd := m.flushNativeScrollbackCmd(); cmd != nil {
-		t.Fatal("expected startup header to be marked as already printed")
+		t.Fatal("expected startup chrome header not to enter native scrollback")
 	}
 
 	m.appendTranscript("you", tuirender.KindText, "hello native scrollback")
@@ -5897,6 +5947,32 @@ func TestChatFooterShowsEffectiveThinkingAndEffort(t *testing.T) {
 	assertFooterLastLine(t, view, "model: deepseek-v4-pro")
 	assertFooterLastLine(t, view, "effort: max")
 	assertFooterLastLine(t, view, "thinking: off")
+}
+
+func TestModelSetRefreshesHeaderCache(t *testing.T) {
+	m := newModel(nil, "old-model", "high", "on")
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = next.(model)
+	if view := m.View(); !strings.Contains(view, "model:     old-model") {
+		t.Fatalf("expected initial header model:\n%s", view)
+	}
+
+	next, _ = m.Update(svcMsg(service.Event{
+		Kind:   service.EventLocalSubmitResult,
+		Status: "info",
+		Text:   "model set: newer-model  effort: low  thinking: off",
+	}))
+	m = next.(model)
+
+	view := m.View()
+	if !strings.Contains(view, "model:     newer-model") ||
+		!strings.Contains(view, "effort:    low") ||
+		!strings.Contains(view, "thinking:  off") {
+		t.Fatalf("expected refreshed header after model set:\n%s", view)
+	}
+	if strings.Contains(view, "model:     old-model") {
+		t.Fatalf("expected stale header model to disappear:\n%s", view)
+	}
 }
 
 func TestChatStoppingViewShowsStoppingAboveComposer(t *testing.T) {
@@ -6706,19 +6782,40 @@ func TestClearScreenResetsStateAndShowsHeader(t *testing.T) {
 	if len(m2.diffs) != 0 {
 		t.Fatalf("expected diffs cleared, got %d", len(m2.diffs))
 	}
-	// The transcript should keep only the header banner after clear.
+	// The transcript is cleared; the header is rendered as chat chrome.
 	snap := m2.assembler.Snapshot()
 	if len(snap) != 0 {
 		t.Fatalf("expected empty live assembler, got %+v", snap)
 	}
-	if len(m2.transcript) != 1 {
-		t.Fatalf("expected 1 transcript header, got %d: %+v", len(m2.transcript), m2.transcript)
+	if len(m2.transcript) != 0 {
+		t.Fatalf("expected empty transcript, got %d: %+v", len(m2.transcript), m2.transcript)
 	}
-	if m2.transcript[0].Role != "info" {
-		t.Fatalf("expected info role, got %q", m2.transcript[0].Role)
+	view := m2.View()
+	if !strings.Contains(view, "WHALE") && !strings.Contains(view, "██╗") {
+		t.Fatalf("expected header banner in view after clear:\n%s", view)
 	}
-	if !strings.Contains(m2.transcript[0].Text, "▸ Whale") {
-		t.Fatalf("expected header banner, got: %q", m2.transcript[0].Text)
+	if m2.nativeScrollbackPrinted != len(m2.transcript) {
+		t.Fatalf("expected clear screen to reset native scrollback cursor, got cursor %d for %d transcript items", m2.nativeScrollbackPrinted, len(m2.transcript))
+	}
+}
+
+func TestClearScreenInvalidatesRenderedChatCache(t *testing.T) {
+	m := newModel(nil, "deepseek-v4-flash", "high", "on")
+	m.width = 80
+	m.height = 24
+	m.appendTranscript("assistant", tuirender.KindText, "old cached content")
+	if view := m.View(); !strings.Contains(view, "old cached content") {
+		t.Fatalf("expected old content before clear:\n%s", view)
+	}
+
+	next, _ := m.Update(svcMsg(service.Event{Kind: service.EventClearScreen}))
+	m = next.(model)
+	view := m.View()
+	if strings.Contains(view, "old cached content") {
+		t.Fatalf("expected first clear to remove cached content:\n%s", view)
+	}
+	if !strings.Contains(view, "WHALE") && !strings.Contains(view, "██╗") {
+		t.Fatalf("expected header after first clear:\n%s", view)
 	}
 }
 
