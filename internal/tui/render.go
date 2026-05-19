@@ -2,15 +2,12 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/usewhale/whale/internal/app/service"
-	"github.com/usewhale/whale/internal/build"
 	tuitheme "github.com/usewhale/whale/internal/tui/theme"
 )
 
@@ -18,8 +15,8 @@ func (m model) renderBody(mainWidth, bodyHeight int) string {
 	if bodyHeight <= 0 {
 		return ""
 	}
-	m.ensureViewportContentForSize(mainWidth, bodyHeight)
 	if m.page != pageChat {
+		m.ensureViewportContentForSize(mainWidth, bodyHeight)
 		return lipgloss.NewStyle().
 			Width(mainWidth).
 			Height(bodyHeight).
@@ -27,7 +24,17 @@ func (m model) renderBody(mainWidth, bodyHeight int) string {
 			BorderForeground(tuitheme.Default.Border).
 			Render(m.viewport.View())
 	}
-	return lipgloss.NewStyle().Width(mainWidth).Render(m.chat.View())
+	header, headerHeight := m.chatHeaderForLayout(mainWidth, bodyHeight)
+	chatHeight := max(0, bodyHeight-headerHeight)
+	m.ensureViewportContentForSize(mainWidth, chatHeight)
+	if chatHeight <= 0 {
+		return lipgloss.NewStyle().Width(mainWidth).Render(header)
+	}
+	chat := lipgloss.NewStyle().Width(mainWidth).Render(m.chat.View())
+	if header == "" {
+		return chat
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, header, chat)
 }
 
 func (m model) View() string {
@@ -51,6 +58,22 @@ func (m model) viewportBodyHeight(mainWidth int) int {
 		return 0
 	}
 	return max(0, m.height-countVisibleLines(m.renderBottom(mainWidth)))
+}
+
+func (m model) chatHeaderForLayout(mainWidth, bodyHeight int) (string, int) {
+	if bodyHeight <= 0 {
+		return "", 0
+	}
+	header := buildHeaderBanner(m.model, m.effort, m.thinking, m.cwd, m.version, max(20, mainWidth), bodyHeight)
+	return header, countVisibleLines(header)
+}
+
+func (m model) chatViewportBodyHeight(mainWidth, bodyHeight int) int {
+	if m.page != pageChat {
+		return bodyHeight
+	}
+	_, headerHeight := m.chatHeaderForLayout(mainWidth, bodyHeight)
+	return max(0, bodyHeight-headerHeight)
 }
 
 func (m model) renderBottom(mainWidth int) string {
@@ -555,32 +578,6 @@ func formatElapsedCompact(elapsed time.Duration) string {
 	minutes := (seconds % 3600) / 60
 	remSeconds := seconds % 60
 	return fmt.Sprintf("%dh %02dm %02ds", hours, minutes, remSeconds)
-}
-
-func resolveVersion() string {
-	return build.CurrentVersion()
-}
-
-func buildHeaderBanner(modelName, effort, thinking, cwd, version string) string {
-	return fmt.Sprintf("▸ Whale %s   model: %s   effort: %s   thinking: %s   dir: %s",
-		version, modelName, effort, thinking, cwd)
-}
-
-func resolveWorkingDirectory() string {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	home, hErr := os.UserHomeDir()
-	if hErr == nil {
-		if rel, rErr := filepath.Rel(home, wd); rErr == nil && rel != "" && rel != "." && !strings.HasPrefix(rel, "..") {
-			return "~/" + rel
-		}
-		if filepath.Clean(wd) == filepath.Clean(home) {
-			return "~"
-		}
-	}
-	return wd
 }
 
 func (m model) pageLabel() string {

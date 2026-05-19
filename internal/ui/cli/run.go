@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -88,6 +89,9 @@ func Run(cfg app.Config, start app.StartOptions) error {
 			continue
 		}
 		if cmd.Handled {
+			if cmd.ClearScreen {
+				clearCLIOutput(os.Stdout)
+			}
 			if cmd.Text != "" {
 				fmt.Println(cmd.Text)
 			}
@@ -183,6 +187,11 @@ func Run(cfg app.Config, start app.StartOptions) error {
 		}
 	}
 	return scanner.Err()
+}
+
+func clearCLIOutput(out io.Writer) {
+	fmt.Fprint(out, "\033[H\033[2J\033[3J")
+	fmt.Fprintln(out, "terminal cleared")
 }
 
 func promptResumeChoice(scanner *bufio.Scanner, app *app.App) error {

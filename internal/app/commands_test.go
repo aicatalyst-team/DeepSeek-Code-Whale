@@ -530,8 +530,8 @@ func TestHandleSlashClearReturnsClearScreenFlag(t *testing.T) {
 	if synthetic != "" {
 		t.Fatal("expected no synthetic prompt")
 	}
-	if !strings.Contains(out, "terminal cleared") {
-		t.Fatalf("expected output to mention terminal cleared, got: %q", out)
+	if out != "" {
+		t.Fatalf("expected /clear to avoid appending a local result, got: %q", out)
 	}
 }
 
@@ -822,10 +822,10 @@ func TestHandleSlashNewIncludesResumeHint(t *testing.T) {
 	if app.SessionID() != "fresh" {
 		t.Fatalf("expected tab-separated session id fresh, got %s", app.SessionID())
 	}
-	if !strings.Contains(out, "new session: fresh") {
+	if !strings.Contains(out, "New session") || !strings.Contains(out, "session:  fresh") {
 		t.Fatalf("expected output to contain new session, got: %q", out)
 	}
-	if !strings.Contains(out, "dropped 1 message") {
+	if !strings.Contains(out, "dropped:  1 message") {
 		t.Fatalf("expected output to mention dropped messages, got: %q", out)
 	}
 	if !strings.Contains(out, "whale resume sess-1") {

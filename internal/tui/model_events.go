@@ -342,7 +342,7 @@ func (m *model) handleServiceEvent(ev service.Event) (tea.Cmd, bool, bool) {
 		m.assembler.Reset()
 		m.clearPendingToolCalls()
 		m.ephemeralMessages = nil
-		m.resetTranscriptWithHeader()
+		m.resetTranscript()
 		m.resetTurnVisibility()
 		m.logs = nil
 		m.diffs = nil
@@ -353,7 +353,7 @@ func (m *model) handleServiceEvent(ev service.Event) (tea.Cmd, bool, bool) {
 		m.assembler.Reset()
 		m.clearPendingToolCalls()
 		m.ephemeralMessages = nil
-		m.resetTranscriptWithHeader()
+		m.resetTranscript()
 		m.resetTurnVisibility()
 		m.logs = nil
 		m.diffs = nil
@@ -446,7 +446,15 @@ func (m *model) appendLocalSubmitResult(role, text string) {
 	if m.assembler != nil && m.assembler.Len() > 0 {
 		m.commitLiveTranscript(false)
 	}
+	if isSessionNotice(text) {
+		m.appendTranscript("notice", tuirender.KindNotice, text)
+		return
+	}
 	m.appendTranscript(role, tuirender.KindText, text)
+}
+
+func isSessionNotice(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "New session\n")
 }
 
 func (m *model) resetTurnVisibility() {
