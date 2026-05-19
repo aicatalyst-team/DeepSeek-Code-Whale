@@ -145,6 +145,7 @@ type model struct {
 	planImplementation struct {
 		index int
 	}
+	lastProposedPlan               string
 	sawPlanThisTurn                bool
 	sawAssistantThisTurn           bool
 	sawReasoningThisTurn           bool

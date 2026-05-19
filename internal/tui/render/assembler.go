@@ -9,6 +9,7 @@ const (
 	KindNotice     MessageKind = "notice"
 	KindThinking   MessageKind = "thinking"
 	KindPlan       MessageKind = "plan"
+	KindPlanUpdate MessageKind = "plan_update"
 	KindToolCall   MessageKind = "tool_call"
 	KindToolResult MessageKind = "tool_result"
 )
@@ -187,6 +188,18 @@ func (a *Assembler) AddPlan(text string) {
 	a.messages = append(a.messages, UIMessage{
 		Role: "plan",
 		Kind: KindPlan,
+		Text: t,
+	})
+}
+
+func (a *Assembler) AddPlanUpdate(text string) {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return
+	}
+	a.messages = append(a.messages, UIMessage{
+		Role: "plan",
+		Kind: KindPlanUpdate,
 		Text: t,
 	})
 }

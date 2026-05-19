@@ -75,6 +75,7 @@ func (m *model) handleServiceEvent(ev service.Event) (tea.Cmd, bool, bool) {
 	case service.EventPlanCompleted:
 		m.clearProviderRetryStatus()
 		if strings.TrimSpace(ev.Text) != "" {
+			m.lastProposedPlan = strings.TrimSpace(ev.Text)
 			if m.assembler == nil {
 				m.assembler = tuirender.NewAssembler()
 			}
@@ -83,6 +84,16 @@ func (m *model) handleServiceEvent(ev service.Event) (tea.Cmd, bool, bool) {
 			m.sawPlanThisTurn = true
 		}
 		m.addLog(logEntry{Kind: "plan_completed", Source: "plan", Summary: truncateLine(ev.Text, 120), Raw: ev.Text})
+	case service.EventPlanUpdate:
+		m.clearProviderRetryStatus()
+		if strings.TrimSpace(ev.Text) != "" {
+			if m.assembler == nil {
+				m.assembler = tuirender.NewAssembler()
+			}
+			m.assembler.AddPlanUpdate(ev.Text)
+			m.refreshLiveViewportContent()
+		}
+		m.addLog(logEntry{Kind: "plan_update", Source: "plan", Summary: truncateLine(ev.Text, 120), Raw: ev.Text})
 	case service.EventProviderRetry:
 		m.setProviderRetryStatus(ev)
 		m.addLog(logEntry{Kind: "api_retry", Source: "provider", Summary: ev.Text, Raw: fmt.Sprintf("%+v", ev.Metadata)})
@@ -131,7 +142,9 @@ func (m *model) handleServiceEvent(ev service.Event) (tea.Cmd, bool, bool) {
 		}
 	case service.EventToolCall:
 		m.clearProviderRetryStatus()
-		m.appendToolCall(ev.ToolCallID, ev.ToolName, ev.Text)
+		if ev.ToolName != "update_plan" {
+			m.appendToolCall(ev.ToolCallID, ev.ToolName, ev.Text)
+		}
 		m.addLog(logEntry{
 			Kind:    "tool_call",
 			Source:  ev.ToolName,
@@ -356,6 +369,7 @@ func (m *model) handleTurnDone(ev service.Event) tea.Cmd {
 	if isAgentTurnDone(ev) {
 		reconciledAssistant = m.reconcileFinalAssistant(ev.LastResponse)
 	}
+	m.markMissingProposedPlanIfNeeded(wasBusy)
 	m.markNoFinalAnswerIfNeeded()
 	m.commitLiveTranscript(reconciledAssistant && !wasFrozen)
 	if wasFrozen {
