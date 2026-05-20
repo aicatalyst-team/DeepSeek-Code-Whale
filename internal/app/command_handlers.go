@@ -64,6 +64,10 @@ func (a *App) ExecuteSlash(line string) (CommandExecution, error) {
 			SkipSkillInjection:  true,
 		}}, nil
 	}
+	if strings.TrimSpace(cmdResult.ForkName) != "" || trimmedCommandHead(line) == "/fork" {
+		msg, err := a.forkCurrentSession(cmdResult.ForkName)
+		return CommandExecution{Handled: true, Text: msg}, err
+	}
 	out := CommandExecution{Handled: true, ShouldExit: cmdResult.ShouldExit}
 	if cmdResult.Mode != "" {
 		mode, err := session.ParseMode(cmdResult.Mode)
@@ -119,6 +123,14 @@ func (a *App) ExecuteSlash(line string) (CommandExecution, error) {
 		}
 	}
 	return out, nil
+}
+
+func trimmedCommandHead(line string) string {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 func (a *App) HandleLocalCommand(line string) (handled bool, output string, synthetic string, err error) {

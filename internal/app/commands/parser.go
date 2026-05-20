@@ -22,6 +22,7 @@ type Result struct {
 	InitMemory   bool
 	ShowSkills   bool
 	ReviewPrompt string
+	ForkName     string
 }
 
 func NewSessionID(now time.Time) string {
@@ -63,6 +64,16 @@ func Parse(line, currentSessionID string, now time.Time) (Result, error) {
 			next = NewSessionID(now)
 		}
 		return Result{Handled: true, SessionID: next, Output: fmt.Sprintf("new session: %s", next)}, nil
+	}
+	if head == "/fork" {
+		if len(fields) > 2 {
+			return Result{}, fmt.Errorf("usage: /fork [name]")
+		}
+		name := ""
+		if len(fields) == 2 {
+			name = strings.TrimSpace(fields[1])
+		}
+		return Result{Handled: true, SessionID: currentSessionID, ForkName: name}, nil
 	}
 	if trimmed == "/clear" {
 		return Result{Handled: true, SessionID: currentSessionID, ClearScreen: true}, nil

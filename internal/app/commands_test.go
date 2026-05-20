@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	appcommands "github.com/usewhale/whale/internal/app/commands"
 	"github.com/usewhale/whale/internal/core"
+	"github.com/usewhale/whale/internal/session"
 	"github.com/usewhale/whale/internal/store"
 	"github.com/usewhale/whale/internal/telemetry"
 )
@@ -99,6 +100,27 @@ func TestHandleCommandResumeAndNew(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected tab-separated /new usage error")
 	}
+
+	res, err = handleCommand("/fork", "cur", now)
+	if err != nil {
+		t.Fatalf("unexpected /fork err: %v", err)
+	}
+	if res.SessionID != "cur" || res.ForkName != "" {
+		t.Fatalf("unexpected /fork result: %+v", res)
+	}
+
+	res, err = handleCommand("/fork\tbranch-name", "cur", now)
+	if err != nil {
+		t.Fatalf("unexpected named /fork err: %v", err)
+	}
+	if res.SessionID != "cur" || res.ForkName != "branch-name" {
+		t.Fatalf("unexpected named /fork result: %+v", res)
+	}
+
+	_, err = handleCommand("/fork a b", "cur", now)
+	if err == nil {
+		t.Fatal("expected /fork usage error")
+	}
 }
 
 func TestClassifySubmitSlashCommands(t *testing.T) {
@@ -140,6 +162,9 @@ func TestClassifySubmitSlashCommands(t *testing.T) {
 		{line: "/new", want: appcommands.SubmitLocalMutating},
 		{line: "/new scratch", want: appcommands.SubmitLocalMutating},
 		{line: "/new\tscratch", want: appcommands.SubmitLocalMutating},
+		{line: "/fork", want: appcommands.SubmitLocalMutating},
+		{line: "/fork scratch", want: appcommands.SubmitLocalMutating},
+		{line: "/fork\tscratch", want: appcommands.SubmitLocalMutating},
 		{line: "/clear", want: appcommands.SubmitLocalMutating},
 		{line: "/exit", want: appcommands.SubmitExit},
 		{line: "/ask inspect", want: appcommands.SubmitTurnStarting},
@@ -156,6 +181,7 @@ func TestClassifySubmitSlashCommands(t *testing.T) {
 		{line: "/skills-improver status", want: appcommands.SubmitUsageError},
 		{line: "/resume xxx", want: appcommands.SubmitUsageError},
 		{line: "/new a b", want: appcommands.SubmitUsageError},
+		{line: "/fork a b", want: appcommands.SubmitUsageError},
 		{line: "/stats bad", want: appcommands.SubmitUsageError},
 		{line: "/feedback now", want: appcommands.SubmitUsageError},
 		{line: "/help now", want: appcommands.SubmitUsageError},
@@ -1018,6 +1044,163 @@ func TestHandleSlashNewIncludesResumeHint(t *testing.T) {
 	}
 	if !strings.Contains(out, "whale resume sess-1") {
 		t.Fatalf("expected output to include resume hint, got: %q", out)
+	}
+}
+
+func TestHandleSlashForkCopiesConversationAndSwitchesSession(t *testing.T) {
+	dir := t.TempDir()
+	sessionsDir := filepath.Join(dir, "sessions")
+	st, err := store.NewJSONLStore(sessionsDir)
+	if err != nil {
+		t.Fatalf("store init: %v", err)
+	}
+	user, err := st.Create(context.Background(), core.Message{SessionID: "sess-1", Role: core.RoleUser, Text: "hello\nfork"})
+	if err != nil {
+		t.Fatalf("write user: %v", err)
+	}
+	assistant, err := st.Create(context.Background(), core.Message{
+		SessionID: "sess-1",
+		Role:      core.RoleAssistant,
+		Text:      "done",
+		ToolCalls: []core.ToolCall{{ID: "tc-1", Name: "shell_run", Input: `{"cmd":"pwd"}`}},
+	})
+	if err != nil {
+		t.Fatalf("write assistant: %v", err)
+	}
+	if err := session.SaveModeState(sessionsDir, "sess-1", session.ModePlan); err != nil {
+		t.Fatalf("save mode: %v", err)
+	}
+	if err := session.SaveTodoState(sessionsDir, "sess-1", session.TodoState{Items: []session.TodoItem{{ID: "t1", Text: "todo"}}}); err != nil {
+		t.Fatalf("save todo: %v", err)
+	}
+
+	app := &App{
+		sessionsDir:   sessionsDir,
+		workspaceRoot: dir,
+		branch:        "feat/fork",
+		sessionID:     "sess-1",
+		msgStore:      st,
+		currentMode:   session.ModePlan,
+		ctx:           context.Background(),
+	}
+	handled, out, synthetic, shouldExit, clearScreen, err := app.HandleSlash("/fork\tCustom")
+	if err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	if !handled || synthetic != "" || shouldExit || clearScreen {
+		t.Fatalf("unexpected command result handled=%v synthetic=%q shouldExit=%v clearScreen=%v", handled, synthetic, shouldExit, clearScreen)
+	}
+	forkID := app.SessionID()
+	if forkID == "" || forkID == "sess-1" {
+		t.Fatalf("expected new fork session id, got %q", forkID)
+	}
+	if !strings.Contains(out, `Forked conversation "Custom (Branch)"`) || !strings.Contains(out, "To resume the original:") || !strings.Contains(out, "sess-1") {
+		t.Fatalf("unexpected fork output: %q", out)
+	}
+
+	got, err := st.List(context.Background(), forkID)
+	if err != nil {
+		t.Fatalf("list fork: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 copied messages, got %+v", got)
+	}
+	if got[0].SessionID != forkID || got[0].ID != user.ID || got[0].Text != user.Text {
+		t.Fatalf("unexpected copied user: %+v source=%+v", got[0], user)
+	}
+	if got[1].SessionID != forkID || got[1].ID != assistant.ID || len(got[1].ToolCalls) != 1 || got[1].ToolCalls[0].ID != "tc-1" {
+		t.Fatalf("unexpected copied assistant: %+v source=%+v", got[1], assistant)
+	}
+	meta, err := session.LoadSessionMeta(sessionsDir, forkID)
+	if err != nil {
+		t.Fatalf("load meta: %v", err)
+	}
+	if meta.Kind != "fork" || meta.ParentSessionID != "sess-1" || meta.Title != "Custom (Branch)" || meta.Branch != "feat/fork" || meta.Workspace != dir {
+		t.Fatalf("unexpected fork meta: %+v", meta)
+	}
+	mode, err := session.LoadModeState(sessionsDir, forkID)
+	if err != nil {
+		t.Fatalf("load mode: %v", err)
+	}
+	if mode.Mode != session.ModePlan {
+		t.Fatalf("expected fork mode plan, got %+v", mode)
+	}
+	todo, err := session.LoadTodoState(sessionsDir, forkID)
+	if err != nil {
+		t.Fatalf("load todo: %v", err)
+	}
+	if len(todo.Items) != 1 || todo.Items[0].ID != "t1" {
+		t.Fatalf("expected copied todo, got %+v", todo)
+	}
+}
+
+func TestHandleSlashForkDerivesTitleAndAvoidsCollisions(t *testing.T) {
+	dir := t.TempDir()
+	sessionsDir := filepath.Join(dir, "sessions")
+	st, err := store.NewJSONLStore(sessionsDir)
+	if err != nil {
+		t.Fatalf("store init: %v", err)
+	}
+	if _, err := st.Create(context.Background(), core.Message{SessionID: "sess-1", Role: core.RoleUser, Text: "first\nprompt"}); err != nil {
+		t.Fatalf("write user: %v", err)
+	}
+	app := &App{
+		sessionsDir:   sessionsDir,
+		workspaceRoot: dir,
+		sessionID:     "sess-1",
+		msgStore:      st,
+		ctx:           context.Background(),
+	}
+
+	if _, _, _, _, _, err := app.HandleSlash("/fork"); err != nil {
+		t.Fatalf("first fork: %v", err)
+	}
+	firstFork := app.SessionID()
+	meta, err := session.LoadSessionMeta(sessionsDir, firstFork)
+	if err != nil {
+		t.Fatalf("first meta: %v", err)
+	}
+	if meta.Title != "first prompt (Branch)" {
+		t.Fatalf("unexpected first title: %q", meta.Title)
+	}
+
+	app.sessionID = "sess-1"
+	if _, _, _, _, _, err := app.HandleSlash("/fork"); err != nil {
+		t.Fatalf("second fork: %v", err)
+	}
+	secondFork := app.SessionID()
+	meta, err = session.LoadSessionMeta(sessionsDir, secondFork)
+	if err != nil {
+		t.Fatalf("second meta: %v", err)
+	}
+	if meta.Title != "first prompt (Branch 2)" {
+		t.Fatalf("unexpected second title: %q", meta.Title)
+	}
+}
+
+func TestHandleSlashForkRequiresConversation(t *testing.T) {
+	dir := t.TempDir()
+	sessionsDir := filepath.Join(dir, "sessions")
+	st, err := store.NewJSONLStore(sessionsDir)
+	if err != nil {
+		t.Fatalf("store init: %v", err)
+	}
+	app := &App{
+		sessionsDir:   sessionsDir,
+		workspaceRoot: dir,
+		sessionID:     "empty",
+		msgStore:      st,
+		ctx:           context.Background(),
+	}
+	handled, out, _, _, _, err := app.HandleSlash("/fork")
+	if !handled {
+		t.Fatal("expected /fork handled")
+	}
+	if err == nil || !strings.Contains(err.Error(), "no conversation to fork") {
+		t.Fatalf("expected empty fork error, got out=%q err=%v", out, err)
+	}
+	if app.SessionID() != "empty" {
+		t.Fatalf("session changed on failed fork: %s", app.SessionID())
 	}
 }
 
