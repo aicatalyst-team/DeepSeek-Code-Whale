@@ -4,63 +4,12 @@ import (
 	"regexp"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/usewhale/whale/internal/app"
 )
-
-const mouseWheelScrollLines = 3
 
 var (
 	sgrMouseFragmentRE     = regexp.MustCompile(`^(?:\x1b?\[<\d+;\d+;\d+[Mm])+$`)
 	sgrMouseTailFragmentRE = regexp.MustCompile(`^<\d+;\d+;\d+[Mm](?:\x1b?\[<\d+;\d+;\d+[Mm])*$`)
 )
-
-func (m *model) handleMouseMsg(msg tea.MouseMsg) (tea.Cmd, bool) {
-	if m.mode == modeHelp {
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			if m.help.selected > 0 {
-				m.help.selected--
-			}
-			m.ensureHelpSelectionVisible()
-			return nil, true
-		case tea.MouseButtonWheelDown:
-			if m.help.selected < len(app.HelpCommands())-1 {
-				m.help.selected++
-			}
-			m.ensureHelpSelectionVisible()
-			return nil, true
-		default:
-			return nil, false
-		}
-	}
-	if m.mode != modeChat || m.page != pageChat || !m.busy {
-		return nil, false
-	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		m.refreshViewportContent()
-		wasFollowingLiveTail := m.followTail && !m.viewportFrozen
-		m.freezeChatViewport()
-		if !wasFollowingLiveTail {
-			m.chat.ScrollBy(-mouseWheelScrollLines)
-		}
-		m.followTail = false
-		m.syncViewportFromChat()
-		return nil, true
-	case tea.MouseButtonWheelDown:
-		m.refreshViewportContent()
-		m.chat.ScrollBy(mouseWheelScrollLines)
-		m.followTail = m.chat.AtBottom()
-		if m.followTail {
-			return m.resumeChatTail(), true
-		}
-		m.syncViewportFromChat()
-		return nil, true
-	default:
-		return nil, false
-	}
-}
 
 func (m *model) consumeMouseCSIFragment(msg tea.KeyMsg) bool {
 	if msg.Type != tea.KeyRunes {
@@ -70,7 +19,7 @@ func (m *model) consumeMouseCSIFragment(msg tea.KeyMsg) bool {
 	if text == "" {
 		return false
 	}
-	if !m.busy && !m.mouseCapture {
+	if !m.busy {
 		m.pendingMouseCSIFragment = false
 		return false
 	}
