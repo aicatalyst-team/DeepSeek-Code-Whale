@@ -56,6 +56,14 @@ func (a *App) ExecuteSlash(line string) (CommandExecution, error) {
 	if cmdResult.ShowSkills {
 		return CommandExecution{Handled: true, Text: a.buildSkillsList()}, nil
 	}
+	if cmdResult.ReviewPrompt != "" {
+		return CommandExecution{Handled: true, Turn: &plugins.CommandTurn{
+			Input:               cmdResult.ReviewPrompt,
+			Hidden:              true,
+			SkipUserPromptHooks: true,
+			SkipSkillInjection:  true,
+		}}, nil
+	}
 	out := CommandExecution{Handled: true, ShouldExit: cmdResult.ShouldExit}
 	if cmdResult.Mode != "" {
 		mode, err := session.ParseMode(cmdResult.Mode)

@@ -91,6 +91,7 @@ const (
 	EventSkillsMenu        EventKind = "skills_menu"
 	EventSkillsManager     EventKind = "skills_manager"
 	EventPluginsManager    EventKind = "plugins_manager"
+	EventReviewMenu        EventKind = "review_menu"
 	EventViewModeChanged   EventKind = "view_mode_changed"
 	EventSkillLoaded       EventKind = "skill_loaded"
 	EventExitRequested     EventKind = "exit_requested"

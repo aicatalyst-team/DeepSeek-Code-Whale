@@ -85,6 +85,11 @@ func classifySlashFields(head string, fields []string, line string) SubmitClass 
 			return SubmitLocalUI
 		}
 		return SubmitUsageError
+	case "/review":
+		if len(fields) == 1 {
+			return SubmitLocalUI
+		}
+		return SubmitTurnStarting
 	case "/focus":
 		if len(fields) == 1 {
 			return SubmitLocalUI

@@ -120,6 +120,11 @@ func TestClassifySubmitSlashCommands(t *testing.T) {
 		{line: "/focus", want: appcommands.SubmitLocalUI},
 		{line: "/skills", want: appcommands.SubmitLocalUI},
 		{line: "/plugins", want: appcommands.SubmitLocalUI},
+		{line: "/review", want: appcommands.SubmitLocalUI},
+		{line: "/review local", want: appcommands.SubmitTurnStarting},
+		{line: "/review pr 123", want: appcommands.SubmitTurnStarting},
+		{line: "/review commit abc123", want: appcommands.SubmitTurnStarting},
+		{line: "/review inspect auth changes", want: appcommands.SubmitTurnStarting},
 		{line: "/memory", want: appcommands.SubmitLocalReadOnly},
 		{line: "/memory list", want: appcommands.SubmitLocalReadOnly},
 		{line: "/memory path", want: appcommands.SubmitLocalReadOnly},
@@ -142,6 +147,7 @@ func TestClassifySubmitSlashCommands(t *testing.T) {
 		{line: "/focus now", want: appcommands.SubmitUsageError},
 		{line: "/skills xxx", want: appcommands.SubmitUsageError},
 		{line: "/plugins status memory", want: appcommands.SubmitUsageError},
+		{line: "/review pr", want: appcommands.SubmitTurnStarting},
 		{line: "/memory bad", want: appcommands.SubmitUsageError},
 		{line: "/memory show", want: appcommands.SubmitUsageError},
 		{line: "/skills-improver status", want: appcommands.SubmitUsageError},
@@ -665,6 +671,75 @@ func TestHandleSlashSkillsCommands(t *testing.T) {
 		t.Fatalf("unexpected /skills output: %q", out)
 	}
 
+}
+
+func TestHandleSlashReviewBuildsHiddenPrompt(t *testing.T) {
+	app := &App{sessionID: "sess-1", cfg: DefaultConfig()}
+
+	handled, out, synthetic, shouldExit, clearScreen, err := app.HandleSlash("/review local")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !handled || out != "" || shouldExit || clearScreen {
+		t.Fatalf("unexpected /review flags handled=%v out=%q shouldExit=%v clearScreen=%v", handled, out, shouldExit, clearScreen)
+	}
+	for _, want := range []string{"You are an expert code reviewer", "Target: local changes", "git diff --cached", "git diff", "inspect the contents of each relevant untracked file", "Start with findings"} {
+		if !strings.Contains(synthetic, want) {
+			t.Fatalf("review prompt missing %q:\n%s", want, synthetic)
+		}
+	}
+
+	_, _, _, _, _, err = app.HandleSlash("/review pr")
+	if err == nil || !strings.Contains(err.Error(), "usage: /review pr <number-or-url>") {
+		t.Fatalf("expected /review pr usage error, got %v", err)
+	}
+}
+
+func TestReviewPromptQuotesShellTargets(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    string
+		want    string
+		notWant string
+	}{
+		{
+			name:    "branch",
+			args:    "branch feature;$(touch-pwn)",
+			want:    "git diff 'feature;$(touch-pwn)...HEAD'",
+			notWant: "git diff feature;$(touch-pwn)...HEAD",
+		},
+		{
+			name:    "pr",
+			args:    "pr https://github.com/usewhale/whale/pull/1?x=$(touch-pwn)",
+			want:    "gh pr diff 'https://github.com/usewhale/whale/pull/1?x=$(touch-pwn)'",
+			notWant: "gh pr diff https://github.com/usewhale/whale/pull/1?x=$(touch-pwn)",
+		},
+		{
+			name:    "commit",
+			args:    "commit abc123;$(touch-pwn)",
+			want:    "git show --stat --patch 'abc123;$(touch-pwn)'",
+			notWant: "git show --stat --patch abc123;$(touch-pwn)",
+		},
+		{
+			name: "single quote",
+			args: "commit abc'123",
+			want: `git show --stat --patch 'abc'"'"'123'`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			prompt, err := appcommands.ReviewPromptFromArgs(tc.args)
+			if err != nil {
+				t.Fatalf("ReviewPromptFromArgs: %v", err)
+			}
+			if !strings.Contains(prompt, tc.want) {
+				t.Fatalf("expected quoted command %q in prompt:\n%s", tc.want, prompt)
+			}
+			if tc.notWant != "" && strings.Contains(prompt, tc.notWant) {
+				t.Fatalf("prompt contains unsafe unquoted command %q:\n%s", tc.notWant, prompt)
+			}
+		})
+	}
 }
 
 func TestSetSkillEnabledUpdatesProjectConfig(t *testing.T) {

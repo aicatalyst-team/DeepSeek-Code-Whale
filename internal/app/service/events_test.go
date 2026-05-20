@@ -65,6 +65,36 @@ func TestCriticalEventsDeliverAfterDeltaBackpressure(t *testing.T) {
 	}
 }
 
+func TestReviewMenuEventDeliversUnderBackpressure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Service{ctx: ctx, events: make(chan Event, 1)}
+	s.events <- Event{Kind: EventInfo, Text: "fill buffer"}
+
+	done := make(chan struct{})
+	go func() {
+		s.emit(Event{Kind: EventReviewMenu})
+		close(done)
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-s.Events():
+			if ev.Kind == EventReviewMenu {
+				select {
+				case <-done:
+				case <-time.After(2 * time.Second):
+					t.Fatal("review menu emit remained blocked after event was consumed")
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for review menu event under backpressure")
+		}
+	}
+}
+
 func TestTurnDeltaCoalescerDropNoticeIsReliable(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -669,6 +699,30 @@ func TestProjectApprovalIntentWritesProjectConfig(t *testing.T) {
 	}
 	if projectCfg.Permissions.Mode != "never" {
 		t.Fatalf("project permissions.mode: want never, got %q", projectCfg.Permissions.Mode)
+	}
+}
+
+func TestReviewCommandOpensMenu(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "sk-test")
+	cfg := app.DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	svc, err := New(t.Context(), cfg, app.StartOptions{NewSession: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer svc.Close()
+	waitForServiceEvent(t, svc, EventSessionHydrated)
+
+	svc.Dispatch(Intent{Kind: IntentSubmit, Input: "/review"})
+	ev := waitForServiceEvent(t, svc, EventReviewMenu)
+	if ev.Kind != EventReviewMenu {
+		t.Fatalf("expected review menu event, got %+v", ev)
+	}
+
+	svc.Dispatch(Intent{Kind: IntentSubmitLocal, Input: "/review"})
+	ev = waitForServiceEvent(t, svc, EventReviewMenu)
+	if ev.Kind != EventReviewMenu {
+		t.Fatalf("expected local review menu event, got %+v", ev)
 	}
 }
 

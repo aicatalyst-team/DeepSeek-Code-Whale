@@ -3175,6 +3175,60 @@ func TestPluginsManagerRendersAndToggles(t *testing.T) {
 	}
 }
 
+func TestReviewMenuDispatchesAndPrefillsTargets(t *testing.T) {
+	m, intents := newModelWithDispatchSpy()
+	m.handleServiceEvent(service.Event{Kind: service.EventReviewMenu})
+	if m.mode != modeReviewMenu {
+		t.Fatalf("expected review menu mode, got %v", m.mode)
+	}
+	rendered := m.renderReviewMenu()
+	for _, want := range []string{"Review", "Local changes", "Current branch vs default branch", "Pull request", "Custom instructions"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected review menu render to contain %q, got:\n%s", want, rendered)
+		}
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if len(*intents) != 1 || (*intents)[0].Kind != service.IntentSubmit || (*intents)[0].Input != "/review local" {
+		t.Fatalf("expected /review local submit intent, got %+v", *intents)
+	}
+	if m.mode != modeChat {
+		t.Fatalf("expected review menu to close, got mode %v", m.mode)
+	}
+	if !m.busy || m.status != "running" {
+		t.Fatalf("expected review action to enter running state, busy=%v status=%q", m.busy, m.status)
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("expected review action to clear input, got %q", got)
+	}
+
+	m, _ = newModelWithDispatchSpy()
+	m.handleServiceEvent(service.Event{Kind: service.EventReviewMenu})
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if got := m.input.Value(); got != "/review pr " {
+		t.Fatalf("expected PR review prefill, got %q", got)
+	}
+	if m.mode != modeChat {
+		t.Fatalf("expected chat mode after prefill, got %v", m.mode)
+	}
+}
+
+func TestReviewMenuEscCloses(t *testing.T) {
+	m, _ := newModelWithDispatchSpy()
+	m.handleServiceEvent(service.Event{Kind: service.EventReviewMenu})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(model)
+	if m.mode != modeChat || m.status != "ready" {
+		t.Fatalf("expected review menu to close, mode=%v status=%q", m.mode, m.status)
+	}
+}
+
 func TestSkillLoadedEventUpdatesStatusAndLogOnly(t *testing.T) {
 	m := newModel(nil, "", "", "")
 	m.handleServiceEvent(service.Event{Kind: service.EventSkillLoaded, Text: "loaded skill: code-review"})
