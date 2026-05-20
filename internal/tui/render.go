@@ -48,7 +48,28 @@ func (m model) View() string {
 	if body == "" {
 		return bottom
 	}
-	return body + "\n" + bottom
+	separator := "\n"
+	if m.chatViewNeedsBottomGap(body, bottom) {
+		separator = "\n\n"
+	}
+	return body + separator + bottom
+}
+
+func (m model) chatViewNeedsBottomGap(body, bottom string) bool {
+	if m.page != pageChat {
+		return false
+	}
+	if m.height > 0 && countVisibleLines(body)+countVisibleLines(bottom)+1 > m.height {
+		return false
+	}
+	liveLen := 0
+	if m.assembler != nil {
+		liveLen = len(m.assembler.Snapshot())
+	}
+	return m.startupHeaderMessage() != nil &&
+		len(m.transcript) == 0 &&
+		liveLen == 0 &&
+		len(m.ephemeralMessages) == 0
 }
 
 func (m model) chatBodyHeightForView(mainWidth, maxBodyHeight int) int {
@@ -74,25 +95,26 @@ func (m model) chatViewportBodyHeight(mainWidth, bodyHeight int) int {
 }
 
 func (m model) renderBottom(mainWidth int) string {
-	footerText := m.model + " · " + m.effort + "  thinking: " + m.thinking
+	footerText := footerField("model:", m.model, tuitheme.Default.InfoSoft) +
+		"  " + footerField("effort:", m.effort, tuitheme.Default.InfoSoft) +
+		"  " + footerField("thinking:", m.thinking, thinkingFooterColor(m.thinking))
 	if m.chatMode == "ask" || m.chatMode == "plan" {
-		footerText += "  mode: " + m.chatMode + " (Shift+Tab to switch)"
+		footerText += "  " + footerField("mode:", m.chatMode, tuitheme.Default.Plan) +
+			" " + footerHint("(Shift+Tab to switch)")
 	}
 	viewIndicator := ""
 	if m.focusEnabled() {
 		viewIndicator = "focus"
 	}
 	viewReserve := footerViewIndicatorReserve(viewIndicator)
-	branchReserve := 0
-	if footerBranchCanRenderWithDir(footerText, m.cwd, m.gitBranch, mainWidth, viewReserve) {
-		branchReserve = footerBranchReserve(m.gitBranch)
-	}
+	branchReserve := footerBranchReserveForWidth(footerText, m.gitBranch, mainWidth, viewReserve)
 	if m.cwd != "" {
 		footerText = appendFooterDir(footerText, m.cwd, mainWidth, branchReserve+viewReserve)
 	}
 	if m.gitBranch != "" {
 		footerText = appendFooterBranch(footerText, m.gitBranch, mainWidth, viewReserve)
 	}
+	footerText = appendFooterHint(footerText, mainWidth, viewReserve)
 	if viewIndicator != "" {
 		footerText = appendFooterViewIndicator(footerText, viewIndicator, mainWidth)
 	}
@@ -215,7 +237,7 @@ func (m model) renderApprovalPrompt() string {
 		}
 	}
 	if detail := approvalDisplayBody(m.approval.toolName, m.approval.reason); detail != "" {
-		bodyParts = append(bodyParts, detail)
+		bodyParts = append(bodyParts, renderApprovalDetail(m.approval.toolName, detail))
 	}
 	approvalBody := body.Render(indentApprovalBody(strings.Join(bodyParts, "\n")))
 	if diff := renderApprovalDiffMetadata(m.approval.metadata, approvalFileDiffPreviewMaxLines); diff != "" {
@@ -232,10 +254,11 @@ func (m model) renderApprovalPrompt() string {
 		}
 	}
 
+	scope := approvalOptionScopeDescription(approvalSessionScope(m.approval.metadata))
 	opts := []string{
-		renderApprovalOption("Allow once", "a", m.approval.selected == 0, false),
-		renderApprovalOption(approvalSessionOptionLabel(m.approval.metadata), "s", m.approval.selected == 1, false),
-		renderApprovalOption("Deny", "d", m.approval.selected == 2, true),
+		renderApprovalOption("Allow once", "a", "", m.approval.selected == 0, false),
+		renderApprovalOption(approvalSessionOptionLabel(m.approval.metadata), "s", scope, m.approval.selected == 1, false),
+		renderApprovalOption("Deny", "d", "", m.approval.selected == 2, true),
 	}
 
 	return lipgloss.JoinVertical(
@@ -246,7 +269,7 @@ func (m model) renderApprovalPrompt() string {
 		"",
 		"  "+strings.Join(opts, "   "),
 		"",
-		hint.Render("Enter confirm · Esc deny · ←/→/tab switch"),
+		hint.Render("Enter confirm · Esc cancel · ←/→/tab switch"),
 	)
 }
 
@@ -281,7 +304,16 @@ func approvalSessionOptionLabel(metadata map[string]any) string {
 	if asBool(metadata["shell_approval_family"]) {
 		return "Allow similar commands"
 	}
-	return "Allow for session"
+	return "Allow session"
+}
+
+func approvalOptionScopeDescription(scope string) string {
+	switch strings.TrimSpace(scope) {
+	case "this shell command":
+		return "same command"
+	default:
+		return ""
+	}
 }
 
 func approvalToolDisplayName(toolName string) string {
@@ -301,6 +333,17 @@ func approvalDisplayBody(toolName, summary string) string {
 		}
 	}
 	return strings.TrimSpace(summary)
+}
+
+func renderApprovalDetail(toolName, detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return ""
+	}
+	if toolName == "shell_run" {
+		return "$ " + tuirender.RenderCommandLike(detail)
+	}
+	return detail
 }
 
 func renderApprovalMemoryMetadata(metadata map[string]any) string {
@@ -363,7 +406,7 @@ func indentApprovalBody(body string) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderApprovalOption(label, shortcut string, selected, destructive bool) string {
+func renderApprovalOption(label, shortcut, description string, selected, destructive bool) string {
 	prefix := mutedSelectionPrefix(selected)
 	key := lipgloss.NewStyle().Foreground(tuitheme.Default.Muted).Render("(" + shortcut + ")")
 	style := lipgloss.NewStyle().Foreground(tuitheme.Default.Muted)
@@ -374,7 +417,11 @@ func renderApprovalOption(label, shortcut string, selected, destructive bool) st
 		}
 		style = lipgloss.NewStyle().Foreground(color).Bold(true)
 	}
-	return prefix + style.Render(label) + " " + key
+	out := prefix + style.Render(label) + " " + key
+	if description = strings.TrimSpace(description); description != "" {
+		out += " " + lipgloss.NewStyle().Foreground(tuitheme.Default.Muted).Render(description)
+	}
+	return out
 }
 
 func mutedSelectionPrefix(selected bool) string {
@@ -420,7 +467,7 @@ func appendFooterDir(base, cwd string, width, reserve int) string {
 	if available <= 0 {
 		return base
 	}
-	return base + segment + fitTail(cwd, available)
+	return base + segment + footerPath(fitTail(cwd, available))
 }
 
 func appendFooterBranch(base, branch string, width, reserve int) string {
@@ -440,7 +487,7 @@ func appendFooterViewIndicator(base, indicator string, width int) string {
 	if indicator == "" {
 		return base
 	}
-	segment := "  " + indicator
+	segment := "  " + footerFocus(indicator)
 	if lipgloss.Width(base)+lipgloss.Width(segment) > width {
 		return base
 	}
@@ -456,6 +503,56 @@ func footerBranchCanRenderWithDir(base, cwd, branch string, width, reserve int) 
 		required += footerDirReserve(cwd)
 	}
 	return required <= width
+}
+
+func footerBranchReserveForWidth(base, branch string, width, reserve int) int {
+	branchReserve := footerBranchReserve(branch)
+	if branchReserve == 0 {
+		return 0
+	}
+	if lipgloss.Width(base)+branchReserve+reserve > width {
+		return 0
+	}
+	return branchReserve
+}
+
+func appendFooterHint(base string, width, reserve int) string {
+	for _, hint := range []string{"PgUp/PgDn scroll"} {
+		segment := "  " + footerHint(hint)
+		if lipgloss.Width(base)+lipgloss.Width(segment)+reserve <= width {
+			return base + segment
+		}
+	}
+	return base
+}
+
+func footerField(label, value string, valueColor lipgloss.Color) string {
+	return lipgloss.NewStyle().Foreground(tuitheme.Default.Muted).Render(label) +
+		" " +
+		lipgloss.NewStyle().Foreground(valueColor).Render(value)
+}
+
+func footerHint(text string) string {
+	return lipgloss.NewStyle().Foreground(tuitheme.Default.Muted).Render(text)
+}
+
+func footerPath(text string) string {
+	return lipgloss.NewStyle().Foreground(tuitheme.Default.Subtle).Render(text)
+}
+
+func footerFocus(text string) string {
+	return lipgloss.NewStyle().Foreground(tuitheme.Default.Accent).Bold(true).Render(text)
+}
+
+func thinkingFooterColor(thinking string) lipgloss.Color {
+	switch strings.ToLower(strings.TrimSpace(thinking)) {
+	case "on", "enabled", "true":
+		return tuitheme.Default.Success
+	case "off", "disabled", "false":
+		return tuitheme.Default.Muted
+	default:
+		return tuitheme.Default.InfoSoft
+	}
 }
 
 func footerDirReserve(cwd string) int {
@@ -513,6 +610,9 @@ func fitTail(s string, width int) string {
 
 func (m model) renderBusyStatusLine(width int) string {
 	if !m.busy {
+		return ""
+	}
+	if m.mode == modeApproval {
 		return ""
 	}
 	label := "Working"

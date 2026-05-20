@@ -264,19 +264,33 @@ func (m *model) handleApprovalKey(msg tea.KeyMsg) tea.Cmd {
 		return m.submitApprovalDecision(service.IntentAllowTool, "approval_allow", "allow", "approved", "allow")
 	case "s":
 		return m.submitApprovalDecision(service.IntentAllowToolForSession, "approval_allow_session", "allow for session", "approved for session", "allow_session")
-	case "d", "esc", "ctrl+c":
+	case "d":
 		return m.submitApprovalDecision(service.IntentDenyTool, "approval_deny", "deny", "rejected", "deny")
+	case "esc", "ctrl+c":
+		return m.submitApprovalDecision(service.IntentCancelToolApproval, "approval_cancel", "cancel", "canceled", "cancel")
 	}
 	return nil
 }
 
 func (m *model) submitApprovalDecision(kind service.IntentKind, logKind, summary, status, notice string) tea.Cmd {
+	toolCallID := m.approval.toolCallID
+	if kind == service.IntentCancelToolApproval {
+		m.removePendingApprovalToolCall(toolCallID)
+		m.sawTerminalToolOutcomeThisTurn = true
+	}
 	m.dispatchIntent(service.Intent{Kind: kind, ToolCallID: m.approval.toolCallID})
 	m.addLog(logEntry{Kind: logKind, Source: m.approval.toolName, Summary: summary, Raw: notice})
 	m.mode = modeChat
 	m.status = status
 	m.appendNotice(m.approvalNoticeText(notice))
 	return m.flushNativeScrollbackCmd()
+}
+
+func (m *model) removePendingApprovalToolCall(toolCallID string) {
+	if m.assembler != nil {
+		m.assembler.RemoveToolCall(toolCallID)
+	}
+	m.markToolCallResolved(toolCallID)
 }
 
 func (m *model) handleSessionPickerKey(msg tea.KeyMsg) tea.Cmd {

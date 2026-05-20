@@ -11,6 +11,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/usewhale/whale/internal/app"
 	"github.com/usewhale/whale/internal/app/service"
@@ -2438,8 +2441,8 @@ func TestTurnDoneReasoningOnlyCommitsFallback(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected wait-event command")
 	}
-	if got := strings.Join(tuirender.ChatLines(m.transcript, 80), "\n"); !strings.Contains(got, "No final answer was produced") {
-		t.Fatalf("expected fallback notice in transcript:\n%s", got)
+	if got := strings.Join(tuirender.ChatLines(m.transcript, 80), "\n"); !strings.Contains(got, "Reasoning only") || !strings.Contains(got, "did not produce a visible answer") {
+		t.Fatalf("expected reasoning-only status in transcript:\n%s", got)
 	}
 	if m.sawReasoningThisTurn || m.sawAssistantThisTurn {
 		t.Fatal("expected turn tracking flags to reset")
@@ -2518,8 +2521,8 @@ func TestTurnDoneRecoversAssistantWhenAllDeltasDropped(t *testing.T) {
 	if !strings.Contains(got, "final answer only present in LastResponse") {
 		t.Fatalf("expected turn completion to recover assistant text from LastResponse:\n%s", got)
 	}
-	if strings.Contains(got, "No final answer was produced") {
-		t.Fatalf("did not expect no-final-answer fallback after LastResponse recovery:\n%s", got)
+	if strings.Contains(got, "did not produce a visible answer") {
+		t.Fatalf("did not expect reasoning-only fallback after LastResponse recovery:\n%s", got)
 	}
 }
 
@@ -2562,11 +2565,11 @@ func TestMarkNoFinalAnswerIfNeeded(t *testing.T) {
 	if len(snap) != 1 {
 		t.Fatalf("expected one notice entry, got %+v", snap)
 	}
-	if snap[0].Kind != tuirender.KindNotice || snap[0].Role != "notice" {
-		t.Fatalf("expected notice entry, got %+v", snap[0])
+	if snap[0].Kind != tuirender.KindStatus || snap[0].Role != "status" {
+		t.Fatalf("expected status entry, got %+v", snap[0])
 	}
-	if !strings.Contains(snap[0].Text, "No final answer was produced") {
-		t.Fatalf("expected generic missing-answer notice, got %q", snap[0].Text)
+	if !strings.Contains(snap[0].Text, "reasoning only") || !strings.Contains(snap[0].Text, "visible answer") {
+		t.Fatalf("expected generic reasoning-only status, got %q", snap[0].Text)
 	}
 	if len(m.logs) != 1 || m.logs[0].Kind != "no_final_answer" {
 		t.Fatalf("expected diagnostic log entry, got %+v", m.logs)
@@ -2586,11 +2589,11 @@ func TestMarkNoFinalAnswerIfNeededAddsPlanNotice(t *testing.T) {
 	if len(snap) != 1 {
 		t.Fatalf("expected one notice entry, got %+v", snap)
 	}
-	if snap[0].Kind != tuirender.KindNotice || snap[0].Role != "notice" {
-		t.Fatalf("expected notice entry, got %+v", snap[0])
+	if snap[0].Kind != tuirender.KindStatus || snap[0].Role != "status" {
+		t.Fatalf("expected status entry, got %+v", snap[0])
 	}
-	if !strings.Contains(snap[0].Text, "No plan was produced") {
-		t.Fatalf("expected missing-plan notice, got %q", snap[0].Text)
+	if !strings.Contains(snap[0].Text, "reasoning only") || !strings.Contains(snap[0].Text, "visible plan") {
+		t.Fatalf("expected reasoning-only plan status, got %q", snap[0].Text)
 	}
 }
 
@@ -3977,6 +3980,89 @@ func TestApprovalNoticeTextUsesDecisionAndSummary(t *testing.T) {
 	if got := m.approvalNoticeText("deny"); !strings.Contains(got, "You canceled the request to run go test ./...") {
 		t.Fatalf("unexpected deny notice: %q", got)
 	}
+	if got := m.approvalNoticeText("cancel"); !strings.Contains(got, "You canceled the request to run go test ./...") {
+		t.Fatalf("unexpected cancel notice: %q", got)
+	}
+}
+
+func TestApprovalEscCancelsInsteadOfDenying(t *testing.T) {
+	m, intents := newModelWithDispatchSpy()
+	m.width = 80
+	m.height = 24
+	m.mode = modeApproval
+	m.approval.toolCallID = "tool-1"
+	m.approval.toolName = "shell_run"
+	m.approval.reason = "shell_run: date"
+
+	cmd := m.handleApprovalKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatal("expected esc approval handling to return no command")
+	}
+	if len(*intents) != 1 || (*intents)[0].Kind != service.IntentCancelToolApproval || (*intents)[0].ToolCallID != "tool-1" {
+		t.Fatalf("expected esc to cancel approval, got %+v", *intents)
+	}
+	if m.mode != modeChat || m.status != "canceled" {
+		t.Fatalf("expected approval cancel to return to chat canceled state, got mode=%v status=%q", m.mode, m.status)
+	}
+}
+
+func TestApprovalEscRemovesPendingToolCallBeforeTurnDone(t *testing.T) {
+	m, intents := newModelWithDispatchSpy()
+	m.width = 100
+	m.height = 24
+	m.busy = true
+	m.mode = modeApproval
+	m.approval.toolCallID = "tool-1"
+	m.approval.toolName = "shell_run"
+	m.approval.reason = "shell_run: date"
+	m.assembler.AddToolCall("tool-1", "shell_run", "Running date")
+	m.markToolCallPending("tool-1")
+	m.sawReasoningThisTurn = true
+
+	_ = m.handleApprovalKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if len(*intents) != 1 || (*intents)[0].Kind != service.IntentCancelToolApproval {
+		t.Fatalf("expected esc to cancel approval, got %+v", *intents)
+	}
+	if got := m.assembler.ToolCallText("tool-1"); got != "" {
+		t.Fatalf("cancel should remove pending tool call before turn done, got %q", got)
+	}
+	if m.hasPendingToolCalls() {
+		t.Fatalf("cancel should clear pending tool call state: %+v", m.pendingToolCalls)
+	}
+	if !m.sawTerminalToolOutcomeThisTurn {
+		t.Fatal("cancel should mark the turn as terminal to suppress reasoning-only fallback")
+	}
+
+	next, _ := m.Update(svcMsg(service.Event{Kind: service.EventTurnDone}))
+	m = next.(model)
+	rendered := strings.Join(tuirender.ChatLines(m.transcript, 100), "\n")
+	if strings.Contains(rendered, "Running date") {
+		t.Fatalf("canceled approval committed pending running row:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Reasoning only") || strings.Contains(rendered, "did not produce a visible answer") {
+		t.Fatalf("approval cancel should suppress reasoning-only fallback:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "You canceled the request to run date") {
+		t.Fatalf("expected cancel notice in transcript:\n%s", rendered)
+	}
+}
+
+func TestApprovalDStillDenies(t *testing.T) {
+	m, intents := newModelWithDispatchSpy()
+	m.width = 80
+	m.height = 24
+	m.mode = modeApproval
+	m.approval.toolCallID = "tool-1"
+	m.approval.toolName = "shell_run"
+	m.approval.reason = "shell_run: date"
+
+	cmd := m.handleApprovalKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if cmd != nil {
+		t.Fatal("expected deny approval handling to return no command")
+	}
+	if len(*intents) != 1 || (*intents)[0].Kind != service.IntentDenyTool || (*intents)[0].ToolCallID != "tool-1" {
+		t.Fatalf("expected d to deny approval, got %+v", *intents)
+	}
 }
 
 func TestTurnInterruptedNoticeText(t *testing.T) {
@@ -4585,7 +4671,8 @@ func TestChatFooterFollowsContentAfterSlashSuggestionsClose(t *testing.T) {
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	m = next.(model)
 	withSlash := m.View()
-	assertFooterLastLine(t, withSlash, "deepseek-v4-pro · normal")
+	assertFooterLastLine(t, withSlash, "model: deepseek-v4-pro")
+	assertFooterLastLine(t, withSlash, "effort: normal")
 	assertFooterLastLine(t, withSlash, "whale")
 	assertFooterLastLineNotContains(t, withSlash, "dir:")
 	if !strings.Contains(withSlash, "Tab/Enter pick") {
@@ -4595,7 +4682,8 @@ func TestChatFooterFollowsContentAfterSlashSuggestionsClose(t *testing.T) {
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	m = next.(model)
 	afterDelete := m.View()
-	assertFooterLastLine(t, afterDelete, "deepseek-v4-pro · normal")
+	assertFooterLastLine(t, afterDelete, "model: deepseek-v4-pro")
+	assertFooterLastLine(t, afterDelete, "effort: normal")
 	assertFooterLastLine(t, afterDelete, "whale")
 	assertFooterLastLineNotContains(t, afterDelete, "dir:")
 	if strings.Contains(afterDelete, "Tab/Enter pick") {
@@ -5196,6 +5284,39 @@ func TestChatStartupHeaderPrintsCompactWhenShort(t *testing.T) {
 	}
 }
 
+func TestChatStartupHeaderLeavesGapAboveComposer(t *testing.T) {
+	m := newModel(nil, "deepseek-v4-flash", "max", "off")
+	m.width = 80
+	m.height = 24
+	view := m.View()
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	promptIdx := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Type message or command") {
+			promptIdx = i
+			break
+		}
+	}
+	if promptIdx < 1 {
+		t.Fatalf("expected composer after startup header:\n%s", view)
+	}
+	if strings.TrimSpace(lines[promptIdx-1]) != "" {
+		t.Fatalf("expected blank line between startup header and composer, got %q in view:\n%s", lines[promptIdx-1], view)
+	}
+}
+
+func TestChatStartupHeaderGapDoesNotOverflowConstrainedHeight(t *testing.T) {
+	for _, height := range []int{5, 11} {
+		m := newModel(nil, "deepseek-v4-flash", "max", "off")
+		m.width = 80
+		m.height = height
+		view := m.View()
+		if got := countVisibleLines(view); got > height {
+			t.Fatalf("startup header view overflowed height %d with %d lines:\n%s", height, got, view)
+		}
+	}
+}
+
 func TestChatStartupHeaderPrintsLargeLogoWhenTall(t *testing.T) {
 	m := newModel(nil, "deepseek-v4-flash", "max", "off")
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -5358,7 +5479,8 @@ func TestChatViewPinsBottomAfterContentExceedsScreen(t *testing.T) {
 	if got := countVisibleLines(view); got != m.height {
 		t.Fatalf("expected overflowing chat view to occupy terminal height %d, got %d:\n%s", m.height, got, view)
 	}
-	assertFooterLastLine(t, view, "deepseek-v4-flash · max")
+	assertFooterLastLine(t, view, "model: deepseek-v4-flash")
+	assertFooterLastLine(t, view, "effort: max")
 	if !strings.Contains(view, "entry-39") {
 		t.Fatalf("expected overflowing chat view to follow latest content:\n%s", view)
 	}
@@ -6556,7 +6678,7 @@ func TestChatBusyViewIgnoresExpiredProviderRetryStatus(t *testing.T) {
 	}
 }
 
-func TestApprovalBusyViewShowsCtrlCOnlyInterruptHint(t *testing.T) {
+func TestApprovalBusyViewDoesNotDuplicatePromptInBusyStatus(t *testing.T) {
 	m := newModel(nil, "", "", "")
 	m.width = 80
 	m.height = 24
@@ -6567,11 +6689,14 @@ func TestApprovalBusyViewShowsCtrlCOnlyInterruptHint(t *testing.T) {
 	m.approval.reason = "shell_run: sleep 30"
 
 	view := m.View()
-	if !strings.Contains(view, "Working (12s) · Ctrl+C to interrupt") {
-		t.Fatalf("expected approval busy status line to advertise ctrl+c interrupt:\n%s", view)
+	if strings.Contains(view, "Approval required · shell command") {
+		t.Fatalf("approval view should not duplicate the prompt in a busy status line:\n%s", view)
 	}
 	if strings.Contains(view, "Esc/Ctrl+C to interrupt") {
 		t.Fatalf("approval busy status line should not advertise esc as interrupt:\n%s", view)
+	}
+	if count := strings.Count(view, "Approval required"); count != 1 {
+		t.Fatalf("approval view should show one approval title, got %d:\n%s", count, view)
 	}
 }
 
@@ -6581,8 +6706,40 @@ func TestChatFooterShowsEffectiveThinkingAndEffort(t *testing.T) {
 	m.height = 24
 
 	view := m.View()
-	assertFooterLastLine(t, view, "deepseek-v4-pro · max")
+	assertFooterLastLine(t, view, "model: deepseek-v4-pro")
+	assertFooterLastLine(t, view, "effort: max")
 	assertFooterLastLine(t, view, "thinking: off")
+}
+
+func TestChatFooterUsesSemanticColorSegments(t *testing.T) {
+	oldProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(oldProfile) })
+
+	m := newModel(nil, "deepseek-v4-pro", "max", "on")
+	m.width = 100
+	m.height = 24
+	m.cwd = "~/Engineer/ai/dsk/whale-theme-colors"
+	m.viewMode = app.ViewModeFocus
+
+	view := m.View()
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	footer := lines[len(lines)-1]
+	if !strings.Contains(footer, "\x1b[") {
+		t.Fatalf("expected styled footer segments, got %q in view:\n%s", footer, view)
+	}
+	plain := xansi.Strip(footer)
+	for _, want := range []string{
+		"model: deepseek-v4-pro",
+		"effort: max",
+		"thinking: on",
+		"whale-theme-colors",
+		"focus",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected stripped footer to contain %q, got %q", want, plain)
+		}
+	}
 }
 
 func TestModelSetRefreshesHeaderCache(t *testing.T) {
@@ -6614,7 +6771,8 @@ func TestModelSetRefreshesHeaderCache(t *testing.T) {
 	if strings.Contains(view, "model set: newer-model") {
 		t.Fatalf("expected printed model set result not to repeat in tail viewport:\n%s", view)
 	}
-	assertFooterLastLine(t, view, "newer-model · low")
+	assertFooterLastLine(t, view, "model: newer-model")
+	assertFooterLastLine(t, view, "effort: low")
 	assertFooterLastLine(t, view, "thinking: off")
 }
 
@@ -6665,8 +6823,70 @@ func TestApprovalViewSeparatesToolNameFromDetail(t *testing.T) {
 	if strings.Contains(view, "shell_run") {
 		t.Fatalf("approval view should not expose internal shell tool name:\n%s", view)
 	}
-	if !strings.Contains(view, "Approval required") || !strings.Contains(view, "shell command") || !strings.Contains(view, "  date") {
+	if !strings.Contains(view, "Approval required") || !strings.Contains(view, "shell command") || !strings.Contains(xansi.Strip(view), "$ date") {
 		t.Fatalf("expected separated approval tool and detail:\n%s", view)
+	}
+}
+
+func TestApprovalViewHidesDuplicatePendingToolRow(t *testing.T) {
+	m := newModel(nil, "", "", "")
+	m.width = 100
+	m.height = 24
+	m.startBusy()
+	m.mode = modeApproval
+	m.approval.toolCallID = "tool-1"
+	m.approval.toolName = "shell_run"
+	m.approval.reason = "shell_run: git diff -- internal/tui/render.go | head -600"
+	m.assembler.AddToolCall("tool-1", "shell_run", "Running git diff -- internal/tui/render.go | head -600")
+
+	view := xansi.Strip(m.View())
+	if strings.Contains(view, "Running git diff") {
+		t.Fatalf("approval view should hide duplicate pending tool row:\n%s", view)
+	}
+	if count := strings.Count(view, "git diff -- internal/tui/render.go | head -600"); count != 1 {
+		t.Fatalf("approval view should render the command exactly once, got %d:\n%s", count, view)
+	}
+	if !strings.Contains(view, "$ git diff -- internal/tui/render.go | head -600") {
+		t.Fatalf("approval view should render a command body:\n%s", view)
+	}
+}
+
+func TestApprovalViewShortensShellSessionScope(t *testing.T) {
+	m := newModel(nil, "", "", "")
+	m.width = 100
+	m.height = 24
+	m.mode = modeApproval
+	m.approval.toolName = "shell_run"
+	m.approval.reason = "shell_run: date"
+	m.approval.metadata = map[string]any{"approval_session_scope": "this shell command"}
+
+	view := xansi.Strip(m.View())
+	if !strings.Contains(view, "Allow session (s) same command") {
+		t.Fatalf("expected shortened shell session option:\n%s", view)
+	}
+	if strings.Contains(view, "Allow for session") || strings.Contains(view, "this shell command") {
+		t.Fatalf("approval shell session option should stay compact:\n%s", view)
+	}
+}
+
+func TestApprovalViewPreservesExactShellCommandText(t *testing.T) {
+	m := newModel(nil, "", "", "")
+	m.width = 120
+	m.height = 30
+	m.mode = modeApproval
+	m.approval.toolName = "shell_run"
+	cmd := "printf 'a  b'\n  echo \"c  d\" | head -1"
+	m.approval.reason = "shell_run: " + cmd
+
+	view := xansi.Strip(m.View())
+	if !strings.Contains(view, "$ printf 'a  b'") {
+		t.Fatalf("approval should preserve quoted repeated spaces:\n%s", view)
+	}
+	if !strings.Contains(view, "  echo \"c  d\" | head -1") {
+		t.Fatalf("approval should preserve embedded newline and indentation:\n%s", view)
+	}
+	if strings.Contains(view, "printf 'a b'") || strings.Contains(view, "echo \"c d\"") {
+		t.Fatalf("approval collapsed command whitespace:\n%s", view)
 	}
 }
 
@@ -6706,7 +6926,7 @@ func TestApprovalViewShowsFileReviewSessionScope(t *testing.T) {
 	for _, want := range []string{
 		"Approval required: file diff review",
 		"Review file changes before Whale applies them.",
-		"Allow for session",
+		"Allow session (s)",
 		"a.txt (+1 -1)",
 	} {
 		if !strings.Contains(view, want) {
@@ -6788,7 +7008,7 @@ func TestApprovalViewShowsMemoryWriteMetadata(t *testing.T) {
 		"Description: prefers concise Chinese answers",
 		"Content:",
 		"Answer in concise Chinese with repo evidence.",
-		"Allow for session",
+		"Allow session (s)",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected approval view to contain %q:\n%s", want, view)
@@ -6824,7 +7044,7 @@ func TestApprovalViewShowsMemoryDeleteMetadata(t *testing.T) {
 		"Name: roadmap",
 		"Description: plugin-first memory",
 		"Memory is the first official plugin.",
-		"Allow for session",
+		"Allow session (s)",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected approval view to contain %q:\n%s", want, view)
@@ -7224,8 +7444,8 @@ func TestToolDeniedDoesNotAddNoFinalAnswerNotice(t *testing.T) {
 	m = next.(model)
 	snap := m.assembler.Snapshot()
 	for _, entry := range snap {
-		if strings.Contains(entry.Text, "No final answer was produced") {
-			t.Fatalf("unexpected no-final-answer notice after tool denial: %+v", snap)
+		if strings.Contains(entry.Text, "did not produce a visible answer") {
+			t.Fatalf("unexpected reasoning-only status after tool denial: %+v", snap)
 		}
 	}
 }
