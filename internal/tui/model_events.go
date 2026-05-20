@@ -333,6 +333,17 @@ func (m *model) handleServiceEvent(ev service.Event) (tea.Cmd, bool, bool) {
 		m.skills.selected = 0
 		m.setPluginsManagerItems(ev.Plugins)
 		m.status = "plugins"
+	case service.EventReviewMenu:
+		m.clearProviderRetryStatus()
+		m.stopBusy()
+		m.stopping = false
+		m.mode = modeReviewMenu
+		m.reviewMenu.selected = 0
+		m.slash.matches = nil
+		m.slash.selected = 0
+		m.skills.matches = nil
+		m.skills.selected = 0
+		m.status = "review"
 	case service.EventViewModeChanged:
 		m.clearProviderRetryStatus()
 		mode := strings.TrimSpace(ev.ViewMode)

@@ -34,6 +34,7 @@ const (
 	modeSkillsMenu
 	modeSkillsManager
 	modePluginsManager
+	modeReviewMenu
 )
 
 type page int
@@ -136,6 +137,9 @@ type model struct {
 	pluginsManager struct {
 		all      []pluginManagerItem
 		matches  []int
+		selected int
+	}
+	reviewMenu struct {
 		selected int
 	}
 	modelPicker struct {

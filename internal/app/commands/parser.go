@@ -10,17 +10,18 @@ import (
 )
 
 type Result struct {
-	Handled     bool
-	ShouldExit  bool
-	ClearScreen bool
-	SessionID   string
-	Output      string
-	ShowStatus  bool
-	Mode        string
-	AskPrompt   string
-	PlanPrompt  string
-	InitMemory  bool
-	ShowSkills  bool
+	Handled      bool
+	ShouldExit   bool
+	ClearScreen  bool
+	SessionID    string
+	Output       string
+	ShowStatus   bool
+	Mode         string
+	AskPrompt    string
+	PlanPrompt   string
+	InitMemory   bool
+	ShowSkills   bool
+	ReviewPrompt string
 }
 
 func NewSessionID(now time.Time) string {
@@ -95,6 +96,13 @@ func Parse(line, currentSessionID string, now time.Time) (Result, error) {
 			return Result{Handled: true, SessionID: currentSessionID, ShowSkills: true}, nil
 		}
 		return Result{}, fmt.Errorf("usage: /skills")
+	}
+	if head == "/review" {
+		prompt, err := ReviewPromptFromArgs(strings.TrimSpace(strings.TrimPrefix(trimmed, "/review")))
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{Handled: true, SessionID: currentSessionID, ReviewPrompt: prompt}, nil
 	}
 	return Result{}, nil
 }

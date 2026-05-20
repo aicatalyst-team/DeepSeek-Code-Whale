@@ -227,6 +227,10 @@ func (s *Service) handleLocalSubmit(line string) {
 		s.emit(Event{Kind: EventPluginsManager, Plugins: s.PluginsForManager()})
 		return
 	}
+	if line == "/review" {
+		s.emit(Event{Kind: EventReviewMenu})
+		return
+	}
 	if s.app.IsResumeMenu(line) {
 		s.emitLocalSessionChoices()
 		return
@@ -326,6 +330,10 @@ func (s *Service) handleSubmit(line string, hiddenInput bool, skillBinding *app.
 	}
 	if line == "/plugins" {
 		s.emit(Event{Kind: EventPluginsManager, Plugins: s.PluginsForManager()})
+		return
+	}
+	if line == "/review" {
+		s.emit(Event{Kind: EventReviewMenu})
 		return
 	}
 	if prompt, ok := appcommands.PlanPromptFromSlash(line); ok {
