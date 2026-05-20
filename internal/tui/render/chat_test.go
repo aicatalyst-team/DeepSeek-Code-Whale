@@ -33,6 +33,27 @@ func TestChatLines_MarkdownBoldAndList(t *testing.T) {
 	}
 }
 
+func TestAssembler_PreservesStreamingBlankLineBeforeTable(t *testing.T) {
+	a := NewAssembler()
+	a.AppendDelta("assistant", "全部完成！以下是操作记录：\n\n")
+	a.AppendDelta("assistant", "| 步骤 | 结果 |\n|------|------|\n| ✅ PR | #93 |\n")
+
+	snap := a.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("expected one coalesced assistant message, got %+v", snap)
+	}
+	if !strings.Contains(snap[0].Text, "操作记录：\n\n| 步骤") {
+		t.Fatalf("streaming blank line before table was not preserved: %q", snap[0].Text)
+	}
+	rendered := strings.Join(ChatLines(snap, 80), "\n")
+	if strings.Contains(rendered, "操作记录：| 步骤") {
+		t.Fatalf("table collapsed into preceding paragraph:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "步骤") || !strings.Contains(rendered, "结果") || !strings.Contains(rendered, "✅ PR") {
+		t.Fatalf("expected rendered table content:\n%s", rendered)
+	}
+}
+
 func TestChatLines_ThinkingCardHasDistinctLabel(t *testing.T) {
 	entries := []UIMessage{
 		{Role: "think", Kind: KindThinking, Text: "I should answer carefully."},
