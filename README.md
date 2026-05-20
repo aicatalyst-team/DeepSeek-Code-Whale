@@ -24,6 +24,8 @@
   <strong>90% live prefix-cache hit</strong> · <strong>~30x cheaper per task vs Claude Code</strong> · terminal-first · open source
 </p>
 
+<p align="center"><a href="./ROADMAP.md">📋 Roadmap · View current direction and available tasks</a></p>
+
 ---
 
 ## Quick Start
