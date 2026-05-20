@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/usewhale/whale/internal/session"
 )
 
@@ -23,7 +24,11 @@ type Result struct {
 }
 
 func NewSessionID(now time.Time) string {
-	return now.Format("20060102-150405")
+	u, err := uuid.NewV7()
+	if err != nil {
+		return now.Format("20060102-150405")
+	}
+	return u.String()
 }
 
 func Parse(line, currentSessionID string, now time.Time) (Result, error) {
