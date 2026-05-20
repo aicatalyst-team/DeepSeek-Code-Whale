@@ -7,6 +7,7 @@ type MessageKind string
 const (
 	KindText        MessageKind = "text"
 	KindNotice      MessageKind = "notice"
+	KindStatus      MessageKind = "status"
 	KindThinking    MessageKind = "thinking"
 	KindPlan        MessageKind = "plan"
 	KindPlanUpdate  MessageKind = "plan_update"
@@ -136,6 +137,18 @@ func (a *Assembler) AddNotice(text string) {
 	})
 }
 
+func (a *Assembler) AddStatus(text string) {
+	t := strings.TrimSpace(strings.TrimRight(text, "\n"))
+	if t == "" {
+		return
+	}
+	a.messages = append(a.messages, UIMessage{
+		Role: "status",
+		Kind: KindStatus,
+		Text: t,
+	})
+}
+
 func (a *Assembler) UpdateToolCall(toolCallID, text, role string) bool {
 	t := strings.TrimSpace(strings.TrimRight(text, "\n"))
 	if toolCallID == "" || t == "" {
@@ -162,6 +175,19 @@ func (a *Assembler) ToolCallText(toolCallID string) string {
 		return ""
 	}
 	return a.messages[idx].Text
+}
+
+func (a *Assembler) RemoveToolCall(toolCallID string) bool {
+	if toolCallID == "" {
+		return false
+	}
+	idx, ok := a.toolEntryByID[toolCallID]
+	if !ok || idx < 0 || idx >= len(a.messages) {
+		return false
+	}
+	a.messages = append(a.messages[:idx], a.messages[idx+1:]...)
+	a.rebuildToolEntryIndex()
+	return true
 }
 
 func (a *Assembler) AddPlanDelta(text string) {

@@ -160,7 +160,7 @@ func (m model) scrollbackText(messages []tuirender.UIMessage) string {
 func (m model) chatMessages() []tuirender.UIMessage {
 	live := []tuirender.UIMessage(nil)
 	if m.assembler != nil {
-		live = m.assembler.Snapshot()
+		live = m.visibleLiveMessages(m.assembler.Snapshot())
 	}
 	header := m.startupHeaderMessage()
 	if header == nil && len(m.transcript) == 0 && len(live) == 0 && len(m.ephemeralMessages) == 0 {
@@ -182,7 +182,7 @@ func (m model) chatViewportMessages() []tuirender.UIMessage {
 	}
 	live := []tuirender.UIMessage(nil)
 	if m.assembler != nil {
-		live = m.assembler.Snapshot()
+		live = m.visibleLiveMessages(m.assembler.Snapshot())
 	}
 	start := min(max(m.nativeScrollbackPrinted, 0), len(m.transcript))
 	header := m.startupHeaderMessage()
@@ -197,6 +197,20 @@ func (m model) chatViewportMessages() []tuirender.UIMessage {
 	out = append(out, live...)
 	out = append(out, m.ephemeralMessages...)
 	return m.focusMessages(out)
+}
+
+func (m model) visibleLiveMessages(messages []tuirender.UIMessage) []tuirender.UIMessage {
+	if m.mode != modeApproval || m.approval.toolCallID == "" || len(messages) == 0 {
+		return messages
+	}
+	out := messages[:0]
+	for _, msg := range messages {
+		if msg.Kind == tuirender.KindToolCall && msg.ID == m.approval.toolCallID {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out
 }
 
 func (m model) startupHeaderMessage() *tuirender.UIMessage {
