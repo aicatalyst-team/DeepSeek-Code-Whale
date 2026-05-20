@@ -119,6 +119,11 @@ func classifySlashFields(head string, fields []string, line string) SubmitClass 
 			return SubmitLocalMutating
 		}
 		return SubmitUsageError
+	case "/fork":
+		if len(fields) <= 2 {
+			return SubmitLocalMutating
+		}
+		return SubmitUsageError
 	case "/clear":
 		if len(fields) == 1 {
 			return SubmitLocalMutating
