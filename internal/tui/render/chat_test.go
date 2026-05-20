@@ -204,6 +204,15 @@ func TestMarkdown_NarrowWidthFallback(t *testing.T) {
 	}
 }
 
+func TestMarkdown_NarrowWidthAutolinkDoesNotLeakEscapes(t *testing.T) {
+	input := "URL：<https://example.com/a-b.c>"
+	got := Markdown(input, 10, false)
+	want := "URL：https://example.com/a-b.c"
+	if got != want {
+		t.Fatalf("expected narrow autolink fallback without escapes, got %q want %q", got, want)
+	}
+}
+
 func TestMarkdown_TableBareURLDoesNotDuplicate(t *testing.T) {
 	input := "| 项目 | 地址 |\n|---|---|\n| A | https://example.com |\n"
 	got := Markdown(input, 80, false)
@@ -228,6 +237,36 @@ func TestMarkdown_ExplicitLinkShowsTextAndURL(t *testing.T) {
 	}
 	if !strings.Contains(got, "示例 (https://example.com)") {
 		t.Fatalf("expected terminal link format, got: %q", got)
+	}
+}
+
+func TestMarkdown_AutolinkDoesNotDuplicate(t *testing.T) {
+	input := "PR 已创建：<https://github.com/usewhale/DeepSeek-Code-Whale/pull/92>"
+	got := Markdown(input, 100, false)
+	if strings.Count(got, "https://github.com/usewhale/DeepSeek-Code-Whale/pull/92") != 1 {
+		t.Fatalf("expected autolink URL once, got: %q", got)
+	}
+	if strings.Contains(got, "<https://github.com/usewhale/DeepSeek-Code-Whale/pull/92>") {
+		t.Fatalf("expected autolink brackets removed, got: %q", got)
+	}
+}
+
+func TestMarkdown_AutolinkPreservesMarkdownPunctuation(t *testing.T) {
+	input := "URL：<https://example.com/a*b*c>"
+	got := Markdown(input, 100, false)
+	if strings.Count(got, "https://example.com/a*b*c") != 1 {
+		t.Fatalf("expected autolink with markdown punctuation preserved once, got: %q", got)
+	}
+	if strings.Contains(got, "abc") || strings.Contains(got, "\\*") {
+		t.Fatalf("expected literal asterisks in rendered autolink, got: %q", got)
+	}
+}
+
+func TestMarkdown_HTMLTagIsNotTreatedAsAutolink(t *testing.T) {
+	input := `<p align="center"><a href="https://example.com">Example</a></p>`
+	got := normalizeMarkdownLinks(input, escapeAutolinksForRenderer)
+	if got != input {
+		t.Fatalf("expected HTML tags to bypass autolink normalization, got: %q", got)
 	}
 }
 
