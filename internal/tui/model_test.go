@@ -2945,9 +2945,6 @@ func TestHelpCommandKeyboardNavigationIgnoresMouse(t *testing.T) {
 	if m.help.selected != 1 {
 		t.Fatalf("expected mouse wheel to be ignored in help, got selection %d", m.help.selected)
 	}
-	if m.mouseCapture {
-		t.Fatal("expected help mode not to enable terminal mouse capture")
-	}
 
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = next.(model)
@@ -6010,89 +6007,6 @@ func TestWindowsPasteFallbackDoesNotCaptureMouseCSIFragments(t *testing.T) {
 	}
 	if got := m.windowsPaste.buffer; got != "" {
 		t.Fatalf("expected split mouse CSI fragment not to enter Windows paste buffer, got %q", got)
-	}
-}
-
-func TestBusyMouseWheelFreezesLiveOutputAndScrollsChat(t *testing.T) {
-	m := newModel(nil, "", "", "")
-	m.width = 80
-	m.height = 10
-	m.transcript = nil
-	for i := 0; i < 40; i++ {
-		m.appendTranscript("info", tuirender.KindText, fmt.Sprintf("entry-%02d", i))
-	}
-	m.beginTurnTranscript()
-	m.startBusy()
-	for i := 0; i < 12; i++ {
-		m.append("assistant", fmt.Sprintf("live-%02d\n", i))
-	}
-	m.refreshViewportContentFollow(true)
-
-	next, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
-	m = next.(model)
-	if !m.viewportFrozen {
-		t.Fatal("expected wheel up during busy output to freeze chat viewport")
-	}
-	if m.mouseCapture {
-		t.Fatal("expected busy chat mode not to enable terminal mouse capture")
-	}
-	if m.followTail {
-		t.Fatal("expected wheel up to disable tail following")
-	}
-	view := m.View()
-	if !strings.Contains(view, "live-11") {
-		t.Fatalf("expected small wheel scroll to keep current live output nearby:\n%s", view)
-	}
-
-	frozenView := m.View()
-	events := make([]service.Event, 0, 10)
-	for i := 0; i < 10; i++ {
-		events = append(events, service.Event{Kind: service.EventAssistantDelta, Text: fmt.Sprintf("hidden-live-%02d\n", i)})
-	}
-	next, _ = m.Update(svcBatchMsg(events))
-	m = next.(model)
-	if got := m.View(); got != frozenView {
-		t.Fatalf("expected wheel-scrolled live viewport to stay frozen\nbefore:\n%s\n\nafter:\n%s", frozenView, got)
-	}
-	if strings.Contains(m.View(), "hidden-live-09") {
-		t.Fatalf("expected hidden live tail not to redraw frozen viewport:\n%s", m.View())
-	}
-}
-
-func TestBusyMouseWheelDownResumesTail(t *testing.T) {
-	m := newModel(nil, "", "", "")
-	m.width = 80
-	m.height = 10
-	m.transcript = nil
-	for i := 0; i < 20; i++ {
-		m.appendTranscript("info", tuirender.KindText, fmt.Sprintf("entry-%02d", i))
-	}
-	m.beginTurnTranscript()
-	m.startBusy()
-	for i := 0; i < 12; i++ {
-		m.append("assistant", fmt.Sprintf("live-%02d\n", i))
-	}
-	m.refreshViewportContentFollow(true)
-
-	next, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
-	m = next.(model)
-	if !m.viewportFrozen {
-		t.Fatal("expected wheel up to freeze chat viewport")
-	}
-
-	next, _ = m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
-	m = next.(model)
-	if m.viewportFrozen {
-		t.Fatal("expected wheel down at tail to unfreeze chat viewport")
-	}
-	if !m.followTail {
-		t.Fatal("expected wheel down at tail to resume following")
-	}
-
-	next, _ = m.Update(svcMsg(service.Event{Kind: service.EventAssistantDelta, Text: "latest-after-tail\n"}))
-	m = next.(model)
-	if view := m.View(); !strings.Contains(view, "latest-after-tail") {
-		t.Fatalf("expected resumed tail to render new live output:\n%s", view)
 	}
 }
 

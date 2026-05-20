@@ -85,7 +85,6 @@ type model struct {
 	localSubmitCommands  []string
 	btwPanel             btwPanelState
 	deferredPlanPicker   bool
-	mouseCapture         bool
 	stopping             bool
 	sidebar              bool
 	model                string
@@ -384,35 +383,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.SetWidth(max(20, m.width-4))
 		headerCmd := m.startupHeaderPrintCmd()
 		m.refreshViewportContent()
-		return m, m.withMouseCaptureCmd(headerCmd)
+		return m, m.sequenceCmds(headerCmd)
 	case svcMsg:
 		eventCmd, quit, direct := m.handleServiceEvents([]service.Event{service.Event(msg)})
 		if quit {
-			return m, m.withMouseCaptureCmd(tea.Quit)
+			return m, m.sequenceCmds(tea.Quit)
 		}
 		if direct {
-			return m, m.withMouseCaptureCmd(eventCmd)
+			return m, m.sequenceCmds(eventCmd)
 		}
 		headerCmd := m.startupHeaderPrintCmd()
 		scrollbackCmd := m.flushNativeScrollbackCmd()
-		return m, m.withMouseCaptureCmd(eventCmd, headerCmd, scrollbackCmd, waitEventCmd(m.svc))
+		return m, m.sequenceCmds(eventCmd, headerCmd, scrollbackCmd, waitEventCmd(m.svc))
 	case svcBatchMsg:
 		eventCmd, quit, direct := m.handleServiceEvents([]service.Event(msg))
 		if quit {
-			return m, m.withMouseCaptureCmd(tea.Quit)
+			return m, m.sequenceCmds(tea.Quit)
 		}
 		if direct {
-			return m, m.withMouseCaptureCmd(eventCmd)
+			return m, m.sequenceCmds(eventCmd)
 		}
 		headerCmd := m.startupHeaderPrintCmd()
 		scrollbackCmd := m.flushNativeScrollbackCmd()
-		return m, m.withMouseCaptureCmd(eventCmd, headerCmd, scrollbackCmd, waitEventCmd(m.svc))
+		return m, m.sequenceCmds(eventCmd, headerCmd, scrollbackCmd, waitEventCmd(m.svc))
 	case windowsDeferredEnterMsg:
-		return m, m.withMouseCaptureCmd(m.handleWindowsDeferredEnter(msg))
+		return m, m.sequenceCmds(m.handleWindowsDeferredEnter(msg))
 	case windowsPendingEnterTailMsg:
-		return m, m.withMouseCaptureCmd(m.handleWindowsPendingEnterTail(msg))
+		return m, m.sequenceCmds(m.handleWindowsPendingEnterTail(msg))
 	case windowsPasteBurstFlushMsg:
-		return m, m.withMouseCaptureCmd(m.handleWindowsPasteBurstFlush(msg))
+		return m, m.sequenceCmds(m.handleWindowsPasteBurstFlush(msg))
 	case quitTimeoutMsg:
 		if !m.quitArmedUntil.IsZero() && time.Now().After(m.quitArmedUntil) {
 			m.quitArmedUntil = time.Time{}
@@ -420,44 +419,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "ready"
 			}
 		}
-		return m, m.withMouseCaptureCmd()
+		return m, m.sequenceCmds()
 	case busyTickMsg:
 		if m.busy {
-			return m, m.withMouseCaptureCmd(busyTickCmd())
+			return m, m.sequenceCmds(busyTickCmd())
 		}
-		return m, m.withMouseCaptureCmd()
+		return m, m.sequenceCmds()
 	case gitBranchUpdatedMsg:
 		if msg.cwd == m.cwdPath {
 			m.gitBranch = msg.branch
 		}
-		return m, m.withMouseCaptureCmd()
+		return m, m.sequenceCmds()
 	case reviewCommitsLoadedMsg:
 		m.handleReviewCommitsLoaded(msg)
-		return m, m.withMouseCaptureCmd()
+		return m, m.sequenceCmds()
 	case reviewBranchesLoadedMsg:
 		m.handleReviewBranchesLoaded(msg)
-		return m, m.withMouseCaptureCmd()
+		return m, m.sequenceCmds()
 	case reviewPRsLoadedMsg:
 		m.handleReviewPRsLoaded(msg)
-		return m, m.withMouseCaptureCmd()
+		return m, m.sequenceCmds()
 	case tea.KeyMsg:
 		prevMainWidth, _ := m.layoutDims()
 		prevBodyHeight := m.viewportBodyHeight(prevMainWidth)
 		if !msg.Paste && m.consumeMouseCSIFragment(msg) {
 			m.refreshViewportContent()
-			return m, m.withMouseCaptureCmd()
+			return m, m.sequenceCmds()
 		}
 		cmd, quit, handled := m.handleKeyMsg(msg)
 		if quit {
-			return m, m.withMouseCaptureCmd(tea.Quit)
+			return m, m.sequenceCmds(tea.Quit)
 		}
 		if handled {
 			m.refreshViewportContentIfBodyHeightChanged(prevMainWidth, prevBodyHeight)
-			return m, m.withMouseCaptureCmd(cmd)
-		}
-	case tea.MouseMsg:
-		if cmd, handled := m.handleMouseMsg(msg); handled {
-			return m, m.withMouseCaptureCmd(cmd)
+			return m, m.sequenceCmds(cmd)
 		}
 	}
 	prevMainWidth, _ := m.layoutDims()
@@ -473,12 +468,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resetHistoryNavigation()
 	}
 	m.refreshViewportContentIfBodyHeightChanged(prevMainWidth, prevBodyHeight)
-	return m, m.withMouseCaptureCmd(cmd)
+	return m, m.sequenceCmds(cmd)
 }
 
-func (m *model) withMouseCaptureCmd(cmds ...tea.Cmd) tea.Cmd {
+func (m *model) sequenceCmds(cmds ...tea.Cmd) tea.Cmd {
 	out := make([]tea.Cmd, 0, len(cmds))
-	m.mouseCapture = false
 	for _, cmd := range cmds {
 		if cmd != nil {
 			out = append(out, cmd)
