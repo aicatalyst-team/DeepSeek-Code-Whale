@@ -1,0 +1,38 @@
+# Stage 1: Build the Go binary
+FROM registry.access.redhat.com/ubi9/go-toolset AS builder
+
+USER 0
+WORKDIR /build
+
+# Cache dependencies first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and build statically
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X github.com/usewhale/whale/internal/build.Version=container" \
+    -o /whale ./cmd/whale/
+
+# Stage 2: Minimal runtime image
+FROM registry.access.redhat.com/ubi9/ubi-minimal
+
+# Install git (whale uses git operations at runtime)
+RUN microdnf install -y git-core && microdnf clean all
+
+# Set up app directory
+WORKDIR /opt/app-root/src
+
+# Copy binary from builder
+COPY --from=builder /whale /usr/local/bin/whale
+
+# Environment variables
+ENV DEEPSEEK_API_KEY=""
+
+# OpenShift compatibility: group 0 permissions
+RUN chgrp -R 0 /opt/app-root && chmod -R g=u /opt/app-root
+
+USER 1001
+
+ENTRYPOINT ["whale"]
+CMD ["--help"]
