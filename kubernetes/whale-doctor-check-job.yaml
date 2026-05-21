@@ -19,6 +19,9 @@ spec:
         app.kubernetes.io/component: whale
         poc.autopoc/scenario: doctor-check
     spec:
+      volumes:
+        - name: whale-home
+          emptyDir: {}
       containers:
         - name: whale
           image: quay.io/aicatalyst/deepseek-code-whale-whale:latest
@@ -26,12 +29,17 @@ spec:
           command: ["whale"]
           args: ["doctor"]
           env:
+            - name: HOME
+              value: "/tmp/whale-home"
             - name: DEEPSEEK_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: whale-secrets
                   key: DEEPSEEK_API_KEY
                   optional: true
+          volumeMounts:
+            - name: whale-home
+              mountPath: /tmp/whale-home
           resources:
             requests:
               memory: "256Mi"
