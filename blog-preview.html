@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Learn how to containerize and deploy DeepSeek-Code-Whale as a Kubernetes Job on OpenShift. PoC covers UBI builds, credential handling, and agentic CLI patterns.">
+  <title>Deploying deepseek-code-whale on OpenShift AI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.7;
+      color: #1a1a1a;
+      background: #fff;
+    }
+
+    /* --- Header --- */
+    .header {
+      background: #1a1a1a;
+      color: #fff;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      border-bottom: 3px solid #e00;
+    }
+    .header .logo { font-weight: 700; font-size: 1.1rem; }
+    .header .logo span { color: #e00; }
+
+    /* --- Hero --- */
+    .hero {
+      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      color: #fff;
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      max-width: 800px;
+      margin: 0 auto 0.75rem;
+      line-height: 1.3;
+    }
+    .hero .subtitle {
+      font-size: 1.15rem;
+      color: #ccc;
+      max-width: 700px;
+      margin: 0 auto 1.5rem;
+      font-style: italic;
+    }
+    .hero .meta {
+      font-size: 0.9rem;
+      color: #999;
+    }
+    .hero .meta span { margin: 0 0.5rem; }
+
+    /* --- Article --- */
+    article {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 4rem;
+    }
+
+    article h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin: 2.5rem 0 1rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 2px solid #e00;
+      color: #1a1a1a;
+    }
+    article h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 2rem 0 0.75rem;
+      color: #333;
+    }
+    article h4 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 1.5rem 0 0.5rem;
+      color: #555;
+    }
+
+    article p {
+      margin: 0 0 1.2rem;
+      font-size: 1.05rem;
+    }
+
+    article ul, article ol {
+      margin: 0 0 1.2rem 1.5rem;
+      font-size: 1.05rem;
+    }
+    article li { margin-bottom: 0.4rem; }
+
+    article a {
+      color: #0066cc;
+      text-decoration: none;
+    }
+    article a:hover { text-decoration: underline; }
+
+    article strong { font-weight: 600; }
+
+    article blockquote {
+      border-left: 4px solid #e00;
+      padding: 0.75rem 1rem;
+      margin: 1.5rem 0;
+      background: #f8f8f8;
+      color: #444;
+      font-style: italic;
+    }
+
+    /* --- Code --- */
+    article code {
+      font-family: "SFMono-Regular", "Cascadia Code", "Fira Code",
+                   "JetBrains Mono", Consolas, monospace;
+      font-size: 0.9em;
+      background: #f0f0f0;
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+    }
+    article pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 1.2rem 1.5rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 1.2rem 0 1.5rem;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    article pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+      font-size: inherit;
+    }
+
+    /* --- Tables --- */
+    article table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.2rem 0 1.5rem;
+      font-size: 0.95rem;
+    }
+    article th {
+      background: #f0f0f0;
+      font-weight: 600;
+      text-align: left;
+      padding: 0.6rem 0.8rem;
+      border-bottom: 2px solid #ddd;
+    }
+    article td {
+      padding: 0.5rem 0.8rem;
+      border-bottom: 1px solid #eee;
+    }
+    article tr:hover { background: #fafafa; }
+
+    /* --- Image placeholders --- */
+    .image-placeholder {
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      background: #fafafa;
+      text-align: center;
+      color: #666;
+    }
+    .image-placeholder strong { color: #333; }
+
+    /* --- Footer --- */
+    .footer {
+      background: #1a1a1a;
+      color: #999;
+      padding: 2rem;
+      text-align: center;
+      font-size: 0.85rem;
+      margin-top: 3rem;
+    }
+
+    /* --- Responsive --- */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 1.6rem; }
+      article { padding: 1.5rem 1rem 3rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">Open<span>Shift</span> AI — Developer Blog</div>
+  </div>
+
+  <div class="hero">
+    <h1>Deploying deepseek-code-whale on OpenShift AI</h1>
+    <div class="subtitle">Whale (DeepSeek-Code-Whale) is an open-source terminal-based coding agent optimized for the DeepSeek API.</div>
+    <div class="meta">
+      <span>AutoPoC</span> &middot;
+      <span>May 2026</span> &middot;
+      <span>9 min read</span>
+    </div>
+  </div>
+
+  <article>
+    <h2>What is DeepSeek-Code-Whale?</h2>
+<p>Whale is an open-source, terminal-based coding agent built in Go and optimized for the DeepSeek API. Think of it as a developer's AI pair programmer that lives entirely in your terminal — it can read your codebase, edit files, run commands, and extend its capabilities through MCP (Model Context Protocol) and a pluggable Skills system.</p>
+<p>Under the hood, Whale uses the Cobra CLI framework for command structure and Bubble Tea for its TUI (terminal user interface). One of its more interesting design choices is prefix-cache optimization, which reduces redundant token processing when making repeated DeepSeek API calls — a practical cost-saving measure for developers who run lots of prompts against a large codebase context.</p>
+<p>The project is a good example of the emerging "agentic CLI" pattern: a single binary that wraps an LLM API with tool-calling capabilities, giving developers an AI assistant that operates in the same environment where they already work.</p>
+<h2>Why this matters for OpenShift AI</h2>
+<p>Let's be upfront: Whale scored 30/100 on our RHOAI fitness evaluation. It's a client-side tool that calls an external cloud API. It doesn't deploy a model, serve inference, or interact with any Open Data Hub components directly. So why bother with this PoC?</p>
+<p>Because the interesting question isn't "does Whale use RHOAI components?" — it's "can we containerize agentic AI developer tools and run them as Kubernetes-native workloads?" If you're building a platform team that wants to offer AI-assisted code review in CI/CD pipelines, or batch code analysis as a Job-based workload, you need to know that these tools containerize cleanly, handle credentials gracefully, and behave well in ephemeral environments.</p>
+<p>This PoC exercises the basics: building a Go binary in a UBI-based container, running it as a Kubernetes Job, and validating that CLI tools designed for interactive use can function headlessly. These are foundational questions for any team evaluating agentic AI tooling on OpenShift.</p>
+<h2>Setting up the PoC</h2>
+<p>The infrastructure requirements for this PoC are minimal — deliberately so. Whale is a statically-compiled Go binary with no runtime dependencies:</p>
+<ul>
+<li><strong>CPU/Memory:</strong> 250m CPU, 256Mi RAM — this is a Go CLI, not a model server</li>
+<li><strong>GPU:</strong> None required</li>
+<li><strong>Persistent storage:</strong> None</li>
+<li><strong>Inference server:</strong> None (Whale calls the external DeepSeek API directly)</li>
+<li><strong>Vector database:</strong> None</li>
+<li><strong>Sidecar containers:</strong> None</li>
+</ul>
+<p>The only environment variable needed is <code>DEEPSEEK_API_KEY</code>, which provides credentials for the DeepSeek platform. For our basic validation scenarios (help, version, doctor), the key isn't strictly required — but any actual <code>exec</code> commands that hit the API will need it.</p>
+<p>We chose a Job-based deployment model rather than a long-running Deployment. Whale is a CLI tool — it does work and exits. That maps naturally to Kubernetes Jobs, and it's the pattern you'd use if you wanted to run Whale as a step in a Tekton pipeline or a batch code analysis task.</p>
+<div class="image-placeholder">
+<p><strong>[Image Placeholder 1: Architecture diagram showing Whale's deployment model]</strong></p>
+<p><strong>Placement rationale</strong>: Readers benefit from seeing the simple architecture — a Kubernetes Job running the Whale container, with an outbound arrow to the DeepSeek API — before diving into implementation details.</p>
+<p><strong>Image generation prompt</strong>: A clean architecture diagram on a white background showing a Kubernetes cluster (represented by a rounded rectangle with the K8s wheel logo) containing a single Job pod labeled "whale". An arrow from the pod points outward to a cloud icon labeled "DeepSeek API". Use flat design, blue and teal color palette, 16:9 aspect ratio, minimal text, developer documentation style.</p>
+<p><strong>Alt text</strong>: Architecture diagram showing a Kubernetes Job pod running the Whale container making outbound API calls to the DeepSeek cloud API.</p>
+</div>
+<h2>Containerizing with UBI</h2>
+<p>Whale is a pure Go project, which makes containerization straightforward — but there were a few decisions worth documenting. We used a multi-stage build with a Go builder stage and a UBI minimal runtime stage:</p>
+<pre><code class="language-dockerfile">
+FROM golang:1.24 AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /whale ./cmd/whale
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+COPY --from=builder /whale /usr/local/bin/whale
+ENTRYPOINT ["whale"]
+</code></pre>
+<p>A few things to call out. First, <code>CGO_ENABLED=0</code> is critical here — it produces a fully static binary that runs on UBI minimal without needing glibc or any shared libraries. Second, the project's <code>go.mod</code> specifies Go 1.24 toolchain compatibility (despite the plan mentioning 1.26, which doesn't exist yet), so we used <code>golang:1.24</code> as the builder image.</p>
+<p>The resulting image is lean. UBI minimal plus a single static binary keeps the image size small, the attack surface minimal, and startup time negligible — all properties you want for Job-based workloads that spin up, execute, and terminate.</p>
+<p>The built image is available at <code>quay.io/aicatalyst/deepseek-code-whale-whale:latest</code>.</p>
+<h2>Deploying to Kubernetes</h2>
+<p>Since Whale is a CLI tool that runs and exits, we deployed each test scenario as a separate Kubernetes Job. Here's the structure we used for the help output validation:</p>
+<pre><code class="language-yaml">
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: whale-help-output
+  labels:
+    app: deepseek-code-whale
+    poc-scenario: help-output
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 15
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: whale
+          image: quay.io/aicatalyst/deepseek-code-whale-whale:latest
+          args: ["--help"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: deepseek-credentials
+                  key: api-key
+                  optional: true
+</code></pre>
+<p>A few notable choices: <code>backoffLimit: 0</code> ensures failed Jobs don't retry — we want clean pass/fail signals. <code>activeDeadlineSeconds</code> enforces our per-scenario timeout. And the <code>DEEPSEEK_API_KEY</code> secret reference is marked <code>optional: true</code> because several of our test scenarios specifically validate behavior without a valid key.</p>
+<p>For the <code>exec-no-key</code> scenario, we deliberately omitted the secret to verify that Whale handles missing credentials gracefully — no panics, no unhandled exceptions, just a clear error message and a non-zero exit code.</p>
+<div class="image-placeholder">
+<p><strong>[Image Placeholder 2: Screenshot of test job pods in a terminal or OpenShift console]</strong></p>
+<p><strong>Placement rationale</strong>: Showing the completed Job pods gives readers a concrete visual of what the deployment looks like in practice, reinforcing that this is a real PoC rather than a theoretical exercise.</p>
+<p><strong>Image generation prompt</strong>: A terminal screenshot showing <code>kubectl get jobs</code> output with four completed Kubernetes Jobs: whale-help-output, whale-version-check, whale-doctor-check, and whale-exec-no-key. All showing "1/1" completions. Dark terminal background with green and white monospaced text, realistic CLI appearance, 16:9 aspect ratio.</p>
+<p><strong>Alt text</strong>: Terminal output showing four completed Kubernetes Jobs for the Whale PoC test scenarios, all showing successful completion.</p>
+</div>
+<h2>Test results</h2>
+<p>All four test scenarios passed on the first run. Here are the results:</p>
+<table>
+<tr><th>Scenario</th><th>Description</th><th>Status</th><th>Duration</th></tr>
+<tr><td>help-output</td><td>CLI shows help with available commands</td><td>✅ PASS</td><td>0.2s</td></tr>
+<tr><td>version-check</td><td>CLI reports its version string</td><td>✅ PASS</td><td>0.2s</td></tr>
+<tr><td>doctor-check</td><td>Self-diagnostic reports runtime info</td><td>✅ PASS</td><td>0.2s</td></tr>
+<tr><td>exec-no-key</td><td>Graceful error without API key</td><td>✅ PASS</td><td>0.2s</td></tr>
+</table>
+<p><strong>4/4 scenarios passed.</strong></p>
+<p>The 0.2-second execution times across the board tell us exactly what we'd expect from a statically compiled Go binary — near-instant startup with negligible overhead. This is a meaningful data point for teams considering Whale in CI/CD pipelines: the container overhead is minimal, and the tool is Job-friendly.</p>
+<p>The <code>exec-no-key</code> result is particularly worth highlighting. Whale exits cleanly with a descriptive error when no API key is present, which means you won't get mysterious CrashLoopBackOff situations in Kubernetes if credentials are misconfigured. Good CLI hygiene matters more than usual in containerized environments.</p>
+<p>The <code>doctor</code> command ran successfully, outputting runtime diagnostic information. This kind of built-in health check is valuable when debugging deployment issues — it's a pattern we'd love to see in more AI developer tools.</p>
+<div class="image-placeholder">
+<p><strong>[Image Placeholder 3: Results summary graphic]</strong></p>
+<p><strong>Placement rationale</strong>: A visual summary of test results provides a quick scannable reference and breaks up the text before the analysis sections.</p>
+<p><strong>Image generation prompt</strong>: A clean results dashboard graphic showing 4 test scenarios in a card layout. Each card has a scenario name, a green checkmark, and "0.2s" timing. A header reads "4/4 Passed". Use a modern flat design with a light gray background, green accent color for passes, rounded corners on cards, 16:9 aspect ratio, suitable for a technical blog post.</p>
+<p><strong>Alt text</strong>: Test results dashboard showing all four PoC scenarios passed with 0.2-second execution times each.</p>
+</div>
+<h2>What we learned</h2>
+<p><strong>Go CLI tools are ideal Job candidates.</strong> The zero-dependency static binary pattern — <code>CGO_ENABLED=0</code> plus UBI minimal — produces images that are small, fast to pull, and instant to start. If you're evaluating agentic CLI tools for Kubernetes-native workflows, Go-based tools have a real deployment advantage.</p>
+<p><strong>Credential handling matters more than you think.</strong> In interactive terminal use, a missing API key means the developer just sets it. In a Kubernetes Job, a missing key can mean silent failures or cryptic crash logs. Whale handles this well, but many LLM-backed tools don't — test this early.</p>
+<p><strong>The RHOAI gap is real but instructive.</strong> Whale calls an external API, which means it doesn't exercise any ODH model serving, pipeline, or data science project capabilities. For a production deployment, the interesting next step would be pointing Whale at a self-hosted DeepSeek model running on an RHOAI model serving instance via a compatible API endpoint. Whale's architecture — it talks to a standard OpenAI-compatible API — means this swap should be straightforward.</p>
+<p><strong>MCP support opens platform possibilities.</strong> Whale's MCP (Model Context Protocol) support is intriguing for platform teams. MCP enables structured tool calling, which could integrate with enterprise systems — code review tools, ticketing systems, deployment pipelines. This is where a tool like Whale could become genuinely interesting in an OpenShift AI context, orchestrating agent workflows rather than just being a single developer's terminal helper.</p>
+<p><strong>What we'd do differently:</strong> We'd test with a self-hosted DeepSeek model behind RHOAI model serving to close the platform integration gap. We'd also explore running Whale as a Tekton task in an OpenShift Pipelines workflow to demonstrate the CI/CD code analysis use case more concretely.</p>
+<h2>Try it yourself</h2>
+<p>If you want to reproduce this PoC or extend it, here's everything you need:</p>
+<ul>
+<li><strong>Forked repository:</strong> <a href="https://github.com/aicatalyst-team/DeepSeek-Code-Whale.git">github.com/aicatalyst-team/DeepSeek-Code-Whale</a></li>
+<li><strong>Original project:</strong> <a href="https://github.com/usewhale/DeepSeek-Code-Whale">github.com/usewhale/DeepSeek-Code-Whale</a></li>
+<li><strong>Container image:</strong> <code>quay.io/aicatalyst/deepseek-code-whale-whale:latest</code></li>
+<li><strong>ODH documentation:</strong> <a href="https://opendatahub.io/docs">opendatahub.io/docs</a></li>
+</ul>
+<p>To run the simplest validation locally:</p>
+<pre><code class="language-bash">
+podman run --rm quay.io/aicatalyst/deepseek-code-whale-whale:latest --help
+</code></pre>
+<p>If you're interested in extending this PoC — especially the self-hosted model serving angle or the Tekton pipeline integration — we'd love to hear about it. Open an issue on the fork, or try deploying a DeepSeek model on RHOAI and pointing Whale at it. That's where this story gets genuinely interesting.</p>
+  </article>
+
+  <div class="footer">
+    <p>Generated by AutoPoC &middot; Preview only — not for publication</p>
+  </div>
+</body>
+</html>
