@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deepseek-code-whale
+  labels:
+    app.kubernetes.io/name: deepseek-code-whale
+    app.kubernetes.io/managed-by: autopoc
